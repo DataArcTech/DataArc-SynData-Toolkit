@@ -63,7 +63,7 @@ root_logger.setLevel(logging.INFO)
 # Load and encode logo image
 def get_logo_base64():
     """Load logo image and convert to base64"""
-    logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'images', 'logo.png')
+    logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'logo.png')
     try:
         with open(logo_path, 'rb') as f:
             logo_data = base64.b64encode(f.read()).decode('utf-8')
