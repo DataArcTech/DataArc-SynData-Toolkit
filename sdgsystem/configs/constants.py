@@ -22,7 +22,7 @@ ROLE_ASSISTANT = "assistant"
 DEFAULT_ANSWER_INSTRUCTION = "Output your final answer after <answer>"
 
 # retry settings for LLMs
-DEFAULT_MAX_RETRY_ATTEMPTS = 3
+DEFAULT_MAX_RETRY_ATTEMPTS = 10
 DEFAULT_RETRY_BASE_DELAY = 2
 
 

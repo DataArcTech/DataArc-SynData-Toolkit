@@ -140,10 +140,15 @@ class APIModel(BaseLanguageModel):
                     token_used += completion.usage.total_tokens
                     responses = [choice.message.content.strip() for choice in completion.choices]
                 except Exception as e:
+                    logger.warning(f"API call failed (attempt {retry_count}/{self.max_retry}): {e}")
                     time.sleep(self.retry_delay)
             
             if usage_counter:
                 usage_counter.add_usage(token_used, time.time() - st)
+
+            # Check if responses is still None after all retries
+            if responses is None:
+                raise RuntimeError(f"Failed to get response from API after {self.max_retry} retries")
 
             if n == 1:
                 final_responses.append(responses[0])    # List[str]
