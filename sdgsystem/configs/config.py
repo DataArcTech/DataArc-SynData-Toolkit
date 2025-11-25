@@ -80,7 +80,8 @@ class WebTaskConfig(BaseTaskConfig):
     input_instruction: str = Field(..., description="input instruction")
     output_instruction: str = Field(..., description="output instruction")
     dataset_limit: int = Field(default=1, gt=0, description="number of datasets to crawl per keyword")
-    sample_limit: int = Field(default=1, gt=0, description="number of samples to crawl per dataset")
+    num_samples: int = Field(..., gt=0, description="number of samples to output in final dataset")
+    dataset_score_threshold: int = Field(default=30, ge=0, description="minimum overall score (sum of 5 criteria) for a dataset to be valid")
 
     @classmethod
     def from_dict(cls, config: Dict) -> "WebTaskConfig":

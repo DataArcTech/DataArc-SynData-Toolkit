@@ -11,7 +11,7 @@ export_format: jsonl
 task:
   name: gsm8k
   domain: mathematics
-  demo_examples_path: ./dataset/demo_examples/demo_examples.jsonl  # path for demo examples .jsonl file (Optional)
+  demo_examples_path: /path/to/your/demo_examples.jsonl  # path for demo examples .jsonl file (Optional)
   task_type: local
   
   # local task configuration
@@ -19,7 +19,7 @@ task:
     # Parsing Configuration
     parsing:
       # Directions to document corpora
-      document_dir: ./dataset/documents
+      document_dir: /path/to/your/document_dir
       method: mineru  # default to mineru parser
 
     # Retrieval Configuration
@@ -37,19 +37,23 @@ task:
         The input should be a math word problem that requires multi-step reasoning.
       # Output instruction - appended to prompt to guide output format (HOW to solve)
       output_instruction: |
-        Let's think step by step.
+        The output should contain reasoning process step by step.
       num_samples: 10        # number of initial data
-      temperature: 1.0        # temperature for LLM in initial data generation
+      temperature: 1.0       # temperature for LLM in initial data generation
 
   # web task configuration
   web:
     huggingface_token: "hf_"        # optional. This parameter can be set by 'export HUGGINGFACE_TOKEN="YOUR TOKEN"'
     task_instruction: |
-      You are given a word problem involving basic arithmetic, algebra, or geometry. Your task is to carefully read the problem and provide a step-by-step solution for it.
+      Generate a grade school math word problem that requires multi-step reasoning.
+      The problem should involve basic arithmetic operations and have a clear numerical answer.
     input_instruction: |
-      Follow this format: Read the questions and answers carefully, and choose the one you think is appropriate among the three options A, B and C.’ then Q:[Your question here] CHOICES: A: ...,B: ...,C: ...
+      The input should be a math word problem that requires multi-step reasoning.
     output_instruction: |
-      Your output thinking process and answer should be enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> thinking process here </think> <answer> a single option here </answer>.
+      The output should contain reasoning process step by step.
+    num_samples: 10              # number of initial data
+    dataset_score_threshold: 30  # minimum overall score (sum of 5 criteria) for a dataset to be valid
+    
               
   # distill task configuration
   distill:
@@ -62,7 +66,7 @@ task:
       The input should be a math word problem that requires multi-step reasoning.
     # Output instruction - appended to prompt to guide output format
     output_instruction: |
-      Let's think step by step.
+      The output should contain reasoning process step by step.
     # Number of synthetic samples to generate
     num_samples: 10
     # Batch size for generation (how many samples to generate per API call)
