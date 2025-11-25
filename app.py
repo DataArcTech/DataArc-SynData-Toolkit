@@ -2971,7 +2971,7 @@ def create_status_banner_html(status: str, num_samples: int, model_name: str, is
     '''
 
 
-def create_progress_cards_html(steps: list, current_step_index: int, current_step_usage: str = None, completed_step_stats: dict = None):
+def create_progress_cards_html(steps: list, current_step_index: int, current_step_usage: str = None, completed_step_stats: dict = None, step_dataset_info: dict = None):
     """
     Generate HTML for all progress step cards with optional usage information
 
@@ -2980,12 +2980,14 @@ def create_progress_cards_html(steps: list, current_step_index: int, current_ste
         current_step_index: Index of current step (0-based). Use -1 for not started, len(steps) for all completed
         current_step_usage: Optional usage counter information for the current step (token usage, time estimates)
         completed_step_stats: Dict mapping step index to completion stats (token, time)
+        step_dataset_info: Dict mapping step index to dataset list information (for web task)
 
     Returns:
         HTML string for all progress cards
     """
     cards_html = []
     completed_step_stats = completed_step_stats or {}
+    step_dataset_info = step_dataset_info or {}
 
     for idx, step_text in enumerate(steps):
         usage_detail_html = ''
@@ -2999,9 +3001,18 @@ def create_progress_cards_html(steps: list, current_step_index: int, current_ste
             # Show completion stats if available
             if idx in completed_step_stats:
                 stats = completed_step_stats[idx]
-                usage_detail_html = f'''
+                usage_detail_html += f'''
                 <div style="margin-top: 8px; padding: 8px; background: rgba(3, 124, 74, 0.05); border-radius: 4px; border: 1px solid rgba(3, 124, 74, 0.1);">
                     <p style="margin: 0; font-size: 11px; line-height: 1.4; color: #037C4A; font-family: 'IBM Plex Sans', monospace; white-space: pre-wrap;">{stats}</p>
+                </div>
+                '''
+
+            # Show dataset info if available (for completed steps)
+            if idx in step_dataset_info:
+                dataset_info = step_dataset_info[idx]
+                usage_detail_html += f'''
+                <div style="margin-top: 8px; padding: 8px; background: rgba(3, 124, 74, 0.05); border-radius: 4px; border: 1px solid rgba(3, 124, 74, 0.1);">
+                    <p style="margin: 0; font-size: 11px; line-height: 1.4; color: #037C4A; font-family: 'IBM Plex Sans', monospace; white-space: pre-wrap;">{dataset_info}</p>
                 </div>
                 '''
         elif idx == current_step_index:
@@ -3012,9 +3023,18 @@ def create_progress_cards_html(steps: list, current_step_index: int, current_ste
 
             # Add usage info for current step if available
             if current_step_usage:
-                usage_detail_html = f'''
+                usage_detail_html += f'''
                 <div style="margin-top: 8px; padding: 8px; background: rgba(82, 74, 201, 0.05); border-radius: 4px; border: 1px solid rgba(82, 74, 201, 0.1);">
                     <p style="margin: 0; font-size: 11px; line-height: 1.4; color: #524AC9; font-family: 'IBM Plex Sans', monospace; white-space: pre-wrap;">{current_step_usage}</p>
+                </div>
+                '''
+
+            # Show dataset info if available (for current step)
+            if idx in step_dataset_info:
+                dataset_info = step_dataset_info[idx]
+                usage_detail_html += f'''
+                <div style="margin-top: 8px; padding: 8px; background: rgba(82, 74, 201, 0.05); border-radius: 4px; border: 1px solid rgba(82, 74, 201, 0.1);">
+                    <p style="margin: 0; font-size: 11px; line-height: 1.4; color: #524AC9; font-family: 'IBM Plex Sans', monospace; white-space: pre-wrap;">{dataset_info}</p>
                 </div>
                 '''
         else:
@@ -3127,6 +3147,8 @@ def create_config_dict(
     semantic_model_path: str,
     # Local task specific
     documents: Optional[List] = None,
+    # Web task specific
+    dataset_score_threshold: int = 30,
     # Answer extraction
     answer_extraction_tag: str = "####",
     answer_extraction_instruction: str = "Output your final answer after ####",
@@ -3277,7 +3299,8 @@ def create_config_dict(
             "input_instruction": input_instruction,
             "output_instruction": output_instruction,
             "dataset_limit": 1,
-            "sample_limit": num_samples
+            "num_samples": num_samples,
+            "dataset_score_threshold": dataset_score_threshold
         }
         if hf_token:
             config["task"]["web"]["huggingface_token"] = hf_token
@@ -3318,6 +3341,8 @@ def generate_data(
     semantic_model_path: str,
     # Local task specific
     documents: Optional[List] = None,
+    # Web task specific
+    dataset_score_threshold: int = 30,
     # Answer extraction
     answer_extraction_tag: str = "####",
     answer_extraction_instruction: str = "Output your final answer after ####",
@@ -3412,6 +3437,7 @@ def generate_data(
             base_model_path=base_model_path,
             semantic_model_path=semantic_model_path,
             documents=documents,
+            dataset_score_threshold=dataset_score_threshold,
             answer_extraction_tag=answer_extraction_tag,
             answer_extraction_instruction=answer_extraction_instruction,
             majority_voting_method=majority_voting_method,
@@ -3467,13 +3493,18 @@ def generate_data(
         model_loading_pattern = re.compile(r"Loading .+? model", re.IGNORECASE)
         parsing_pattern = re.compile(r"Parsing document with .+? model", re.IGNORECASE)
 
+        # Web task dataset patterns
+        searched_dataset_pattern = re.compile(r"  - (.+?) \(keyword:")
+        final_dataset_pattern = re.compile(r"  Dataset (.+?): will extract (\d+) samples")
+
         # Separate tracking for different message types
         current_model_loading = [None]  # Model loading status
         current_parsing = [None]  # Document parsing status
         current_usage_counter = [None]  # Usage counter progress
 
-        # Track completed step statistics
+        # Track completed step statistics and step-specific info
         completed_step_stats = {}  # {step_index: "stats string"}
+        step_dataset_info = {}  # {step_index: "dataset list string"} - for searched/final datasets
         step_usage_tracking = {}  # {step_name: {'step_idx': int, 'token': int, 'time': float}}
         last_usage_step_name = [None]  # Track which step name was last processing
 
@@ -3507,6 +3538,31 @@ def generate_data(
                         current_model_loading[0] = new_loading_msg
                         logger.info(f"[UI Progress] Detected model loading: {loading_msg}")
 
+                # Check for web task searched datasets (collect dataset IDs only)
+                # Store under current step index
+                searched_matches = list(searched_dataset_pattern.finditer(new_logs))
+                if searched_matches:
+                    datasets_info = [match.group(1) for match in searched_matches]
+                    if datasets_info:
+                        dataset_list_text = "Searched Datasets:\n" + "\n".join(f"  • {ds}" for ds in datasets_info)
+                        # Store for current step
+                        step_dataset_info[current_step_index[0]] = dataset_list_text
+
+                # Check for web task final datasets to use (collect all dataset entries with sample counts)
+                # Store under current step index
+                dataset_matches = list(final_dataset_pattern.finditer(new_logs))
+                if dataset_matches:
+                    datasets_info = []
+                    for match in dataset_matches:
+                        dataset_id = match.group(1)
+                        samples = match.group(2)
+                        datasets_info.append(f"{dataset_id} ({samples} samples)")
+
+                    if datasets_info:
+                        dataset_list_text = "Final Datasets to Use:\n" + "\n".join(f"  • {ds}" for ds in datasets_info)
+                        # Store for current step
+                        step_dataset_info[current_step_index[0]] = dataset_list_text
+
                 # Parse for usage counter information (before step markers)
                 usage_matches = list(usage_pattern.finditer(new_logs))
                 if usage_matches:
@@ -3539,6 +3595,7 @@ def generate_data(
                     current_usage_counter[0] = f"[{step_name}]\nProgress: {completed}/{total} | Tokens: {token} | Time: {time_spent:.2f}s\nRemaining: ~{remain} iterations | ~{remain_token} tokens | ~{remain_time:.2f}s"
 
                     # Clear loading/parsing messages when usage counter starts
+                    # Keep dataset list visible
                     current_model_loading[0] = None
                     current_parsing[0] = None
 
@@ -3558,6 +3615,7 @@ def generate_data(
                         current_step_index[0] = len(detected_steps) - 1
 
                         # Clear all messages when switching to new step
+                        # Keep dataset list visible throughout the pipeline
                         current_usage_counter[0] = None
                         current_parsing[0] = None
                         current_model_loading[0] = None
@@ -3567,10 +3625,10 @@ def generate_data(
             # Combine messages with priority: usage counter > parsing > model loading
             display_message = current_usage_counter[0] or current_parsing[0] or current_model_loading[0]
 
-            # Yield progress update with dynamic steps and combined message
+            # Yield progress update with dynamic steps, message, and dataset info
             yield (
                 create_status_banner_html("in-progress", num_samples, llm_model, False),
-                create_progress_cards_html(detected_steps, current_step_index[0], display_message, completed_step_stats),
+                create_progress_cards_html(detected_steps, current_step_index[0], display_message, completed_step_stats, step_dataset_info),
                 "",
                 gr.update(visible=True),
                 None
@@ -3618,7 +3676,7 @@ def generate_data(
 
         yield (
             create_status_banner_html("completed", num_samples, llm_model, True, download_file_path),
-            create_progress_cards_html(detected_steps, len(detected_steps), None, completed_step_stats),  # All detected steps completed with stats
+            create_progress_cards_html(detected_steps, len(detected_steps), None, completed_step_stats, step_dataset_info),  # All detected steps completed with stats and dataset info
             output_files_html,
             gr.update(visible=True),
             download_file_path  # Provide file to gr.File component
@@ -3661,7 +3719,9 @@ def update_hf_token_visibility(task_type: str):
     return (
         gr.update(visible=is_local),  # documents_group
         gr.update(visible=is_local),  # parser_method_group
-        gr.update(visible=is_web)     # hf_token_group
+        gr.update(visible=is_web),    # hf_token_group
+        gr.update(visible=is_web),    # dataset_score_threshold_group
+        gr.update(visible=not is_web) # demo_samples_group (hide for web task)
     )
 
 
@@ -3831,10 +3891,10 @@ with gr.Blocks(title="DataArc SDG - Synthetic Data Generator", theme=gr.themes.S
                                     </div>
                                     <div class="task-type-check"></div>
                                 </div>
-                                <div class="task-type-card disabled" data-value="Web">
+                                <div class="task-type-card" data-value="Web" onclick="window.__selectTaskType && window.__selectTaskType('Web', this)">
                                     <span class="iconfont icon-synthetic-Web task-type-icon"></span>
                                     <div class="task-type-content">
-                                        <div class="task-type-title">Web <span class="coming-soon-badge">Coming Soon</span></div>
+                                        <div class="task-type-title">Web</div>
                                         <div class="task-type-desc">Generate synthetic data based on opensource dataset.</div>
                                     </div>
                                     <div class="task-type-check"></div>
@@ -4000,6 +4060,24 @@ with gr.Blocks(title="DataArc SDG - Synthetic Data Generator", theme=gr.themes.S
                             type="password",
                             show_label=False,
                             elem_classes=["optional-field"]
+                        )
+
+                    with gr.Group(elem_classes=["form-field"], elem_id="dataset_score_threshold_group", visible=False) as dataset_score_threshold_group:
+                        gr.HTML(
+                            """
+                            <div class="field-label-with-icon">
+                                <span class="field-label-text">Dataset Score Threshold</span>
+                            </div>
+                            <div class="field-label-info">Minimum overall score (sum of 5 criteria) for a dataset to be valid (0-50)</div>
+                            """
+                        )
+                        dataset_score_threshold = gr.Number(
+                            label="",
+                            value=30,
+                            minimum=0,
+                            maximum=50,
+                            step=1,
+                            show_label=False
                         )
 
 
@@ -4253,7 +4331,7 @@ with gr.Blocks(title="DataArc SDG - Synthetic Data Generator", theme=gr.themes.S
     task_type.change(
         fn=update_hf_token_visibility,
         inputs=[task_type],
-        outputs=[documents_group, parser_method_group, hf_token_group]
+        outputs=[documents_group, parser_method_group, hf_token_group, dataset_score_threshold_group, demo_samples_group]
     )
 
     # Update semantic fields visibility when answer comparison method changes
@@ -4299,6 +4377,7 @@ with gr.Blocks(title="DataArc SDG - Synthetic Data Generator", theme=gr.themes.S
             base_model_path,
             semantic_model_path,
             documents,
+            dataset_score_threshold,
             answer_extraction_tag,
             answer_extraction_instruction,
             majority_voting_method,
