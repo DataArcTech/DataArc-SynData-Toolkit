@@ -17,7 +17,9 @@ from ..prompts import (
     META_PROMPT,
     PATTERN_GENERATION_PROMPT,
 )
+from ..parallel import ParallelExecutor
 from .base import BaseGenerator
+
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,8 @@ class DataGenerator(BaseGenerator):
         task_definition: str,
         demo_examples: List[Dict[str, str]],
         passages: Optional[List[str]]=None,
-        usage_counter: ModelUsageCounter = None
+        usage_counter: ModelUsageCounter = None, 
+        parallel_executor: ParallelExecutor = None, 
     ) -> Dataset:
         
         synthetic_dataset = Dataset()
@@ -66,47 +69,101 @@ class DataGenerator(BaseGenerator):
         batch_size = getattr(self.config, 'batch_size', 5)  # Default batch size of 5
         sample_strings: List[str] = []
 
-        with tqdm(total=self.config.num_samples, desc="Generating samples", unit="sample") as pbar:
+        if parallel_executor and parallel_executor.n_workers > 1:
+            # parallel processing
+            batch_idxes: List[Tuple[int, int]] = []
             for batch_start in range(0, self.config.num_samples, batch_size):
                 batch_end = min(batch_start + batch_size, self.config.num_samples)
-                batch_prompts = []
+                batch_idxes.append((batch_start, batch_end))
 
-                # Build prompts for this batch (each with its own passage)
-                for i in range(batch_start, batch_end):
-                    passage = passages[i % len(passages)] if passages else None
-                    prompt = self._build_sample_generation_prompt(
-                        task_instruction=task_definition,
-                        input_instruction=input_instruction,
-                        output_instruction=output_instruction,
-                        reference_passage=passage,
-                        demo_examples=demo_examples,
-                        pattern=pattern
+            result_batches: List[List[str]] = parallel_executor.execute(
+                iterable_inputs=batch_idxes, 
+                process_function=self._generate_batch, 
+                usage_counter=usage_counter, 
+                n=batch_size, 
+                # additional fixed arguments
+                task_definition=task_definition, 
+                input_instruction=input_instruction, 
+                output_instruction=output_instruction, 
+                pattern=pattern, 
+                demo_examples=demo_examples, 
+                passages=passages
+            )
+
+            for batch in result_batches:
+                sample_strings.extend(batch)
+
+        else:
+            # sequential processing
+            with tqdm(total=self.config.num_samples, desc="Generating samples", unit="sample") as pbar:
+                for batch_start in range(0, self.config.num_samples, batch_size):
+                    batch_end = min(batch_start + batch_size, self.config.num_samples)
+                    batch_length = batch_end - batch_start
+                    
+                    batch_responses = self._generate_batch(
+                        batch_start_end=(batch_start, batch_end), 
+                        task_definition=task_definition, 
+                        input_instruction=input_instruction, 
+                        output_instruction=output_instruction, 
+                        pattern=pattern, 
+                        demo_examples=demo_examples, 
+                        passages=passages, 
+                        usage_counter=usage_counter
                     )
-                    batch_prompts.append(prompt)
 
-                # Generate batch responses
-                batch_responses: List[str] = self.model.generate(
-                    prompts=batch_prompts,
-                    n=1,
-                    usage_counter=usage_counter,
-                    temperature=self.config.temperature
-                )
+                    sample_strings.extend(batch_responses)
+                    pbar.update(batch_length)
 
-                sample_strings.extend(batch_responses)
-                pbar.update(len(batch_prompts))
-
-                if usage_counter:
-                    usage_counter.estimate_usage(n=len(batch_prompts))
+                    if usage_counter:
+                        usage_counter.estimate_usage(n=batch_length)
 
         # step3. Parse and validate
         samples: List[Dict] = self.parse_and_validate_samples(
             response_strings=sample_strings,
             output_instruction=output_instruction,
-            usage_counter=usage_counter
+            usage_counter=usage_counter, 
+            parallel_executor=parallel_executor
         )
         synthetic_dataset.add_samples(samples)
 
         return synthetic_dataset
+    
+    def _generate_batch(self, 
+        batch_start_end: Tuple[int, int], 
+        task_definition: str, 
+        input_instruction: str, 
+        output_instruction: str, 
+        pattern: str, 
+        demo_examples: List[Dict[str, str]],
+        passages: Optional[List[str]]=None, 
+        usage_counter: ModelUsageCounter = None, 
+    ) -> List[str]:
+        batch_start, batch_end = batch_start_end
+        batch_prompts = []
+
+        # Build prompts for this batch (each with its own passage)
+        for i in range(batch_start, batch_end):
+            passage = passages[i % len(passages)] if passages else None
+            prompt = self._build_sample_generation_prompt(
+                task_instruction=task_definition,
+                input_instruction=input_instruction,
+                output_instruction=output_instruction,
+                reference_passage=passage,
+                demo_examples=demo_examples,
+                pattern=pattern
+            )
+            batch_prompts.append(prompt)
+
+        # Generate batch responses
+        batch_responses: List[str] = self.model.generate(
+            prompts=batch_prompts,
+            n=1,
+            usage_counter=usage_counter,
+            temperature=self.config.temperature
+        )
+
+        return batch_responses
+
 
     def _generate_pattern(
         self,

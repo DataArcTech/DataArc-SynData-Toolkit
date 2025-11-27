@@ -6,7 +6,9 @@ from ..configs.config import BaseRewriteConfig, DifficultyAdjustRewriteConfig
 from ..dataset.dataset import Dataset
 from ..models import ModelClient, ModelUsageCounter
 from ..prompts import HARDER_SAMPLE_PROMPT, SIMPLER_SAMPLE_PROMPT
+from ..parallel import ParallelExecutor
 from .base import BaseGenerator
+
 
 
 class BaseRewriter(ABC, BaseGenerator):
@@ -51,7 +53,11 @@ class BaseRewriter(ABC, BaseGenerator):
         
         raise Exception(f"Rewriter with method {config.method} is not supported.")
 
-    def rewrite(self, dataset: Dataset, evaluations: Dict) -> Dataset:
+    def rewrite(self, 
+        dataset: Dataset, 
+        evaluations: Dict, 
+        parallel_executor: ParallelExecutor = None
+    ) -> Dataset:
         """
         Rewrite dataset based on evaluation results.
 
@@ -72,10 +78,20 @@ class BaseRewriter(ABC, BaseGenerator):
         # estimate the token and time usage with each sample
         usage_counter_gen = ModelUsageCounter(total=len(samples), name="Rewriter-Generation")
 
-        rewrite_sample_strings: List[str] = []
-        for sample in tqdm(samples, desc="Rewriting samples", unit="sample"):
-            rewrite_sample_strings.append(self._rewrite_single_sample(sample, usage_counter_gen))
-            usage_counter_gen.estimate_usage(n=1)
+        if parallel_executor and parallel_executor.n_workers > 1:
+            # parallel processing
+            rewrite_sample_strings: List[Union[Dict, str]] = parallel_executor.execute(
+                iterable_inputs=samples, 
+                process_function=self._rewrite_single_sample, 
+                usage_counter=usage_counter_gen, 
+                n=1
+            )
+        else:
+            # sequential processing
+            rewrite_sample_strings: List[str] = []
+            for sample in tqdm(samples, desc="Rewriting samples", unit="sample"):
+                rewrite_sample_strings.append(self._rewrite_single_sample(sample, usage_counter_gen))
+                usage_counter_gen.estimate_usage(n=1)
 
         # step3. validate sample strings and parse them to samples
         # initialize the usage counter for rewriter-validate
@@ -84,7 +100,8 @@ class BaseRewriter(ABC, BaseGenerator):
         rewrite_samples: List[Dict] = self.parse_and_validate_samples(
             response_strings=rewrite_sample_strings,
             output_instruction=self.config.output_instruction, 
-            usage_counter=usage_counter_val
+            usage_counter=usage_counter_val, 
+            parallel_executor=parallel_executor
         )
         rewrite_dataset.add_samples(rewrite_samples)
 

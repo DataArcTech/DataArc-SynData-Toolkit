@@ -469,6 +469,8 @@ class SDGSConfig(BaseConfig):
     device: str = Field(default="cuda:0", description="CUDA device to use for all GPU operations")
     output_dir: str = Field(..., description="synthetic dataset output directory")
     export_format: str = Field(default=DEFAULT_EXPORT_FORMAT, description="Export dataset format")
+    n_workers: int = Field(default=1, description="Number of parallel workers. Default n_workers=1 means sequential processing.")
+
     task_config: SDGSTaskConfig = Field(...)
     generator_config: ModelConfig = Field(...)
     base_model_config: ModelConfig = Field(...)
@@ -520,6 +522,7 @@ class SDGSConfig(BaseConfig):
             device=config_dict.get("device", "cuda:0"),
             output_dir=config_dict["output_dir"],
             export_format=config_dict["export_format"],
+            n_workers=config_dict.get("n_workers", 1), 
             task_config=task_config,
             generator_config=generator_config,
             base_model_config=base_model_config,

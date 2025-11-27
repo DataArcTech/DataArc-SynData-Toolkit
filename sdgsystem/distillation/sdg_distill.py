@@ -50,7 +50,8 @@ class SDGDistillation(BaseDistillation):
     def generate(
         self,
         demo_examples: Optional[List[Dict]] = None,
-        max_tokens: int = 4096
+        max_tokens: int = 4096,
+        parallel_executor = None
     ) -> List[Dict]:
         """
         Generate synthetic data samples using batch generation.
@@ -58,6 +59,7 @@ class SDGDistillation(BaseDistillation):
         Args:
             demo_examples: Optional list of demo examples (dict with 'input', 'output')
             max_tokens: Maximum tokens per generation
+            parallel_executor: Optional ParallelExecutor for parallel batch generation
 
         Returns:
             List of generated samples, each a dict with 'input' and 'output' keys
@@ -80,50 +82,116 @@ class SDGDistillation(BaseDistillation):
 
         logger.info(f"Generating {num_samples} synthetic samples in batches of {batch_size}...")
 
-        with tqdm(total=num_samples, desc="Generating samples", unit="sample") as pbar:
-            for batch_idx in range(num_batches):
-                # Calculate batch size for this iteration
-                remaining = num_samples - len(results)
-                current_batch_size = min(batch_size, remaining)
+        # Build batch configs for all batches
+        batch_configs = []
+        for batch_idx in range(num_batches):
+            remaining = num_samples - (batch_idx * batch_size)
+            current_batch_size = min(batch_size, remaining)
+            batch_configs.append({
+                "batch_idx": batch_idx,
+                "batch_size": current_batch_size,
+                "demo_examples": demo_examples,
+                "patterns": patterns,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            })
 
-                logger.info(f"Batch {batch_idx + 1}/{num_batches}: Generating {current_batch_size} samples...")
+        # Use parallel execution if available and n_workers > 1
+        if parallel_executor and parallel_executor.n_workers > 1:
+            logger.info(f"Using parallel execution with {parallel_executor.n_workers} workers")
 
-                # Build prompt for batch generation (provide all demo examples to every batch)
-                prompt = self._build_batch_prompt(
-                    demo_examples=demo_examples,
-                    patterns=patterns,
-                    batch_size=current_batch_size
-                )
+            # Execute batches in parallel
+            batch_results = parallel_executor.execute(
+                iterable_inputs=batch_configs,
+                process_function=self._generate_single_batch,
+                usage_counter=usage_counter,
+                n=1  # Each batch is 1 iteration
+            )
 
-                # Generate using model client
-                try:
-                    response = self.model.generate(
-                        prompt,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        n=1,
-                        usage_counter=usage_counter
-                    )
+            # Collect results from all batches
+            for batch_samples in batch_results:
+                if batch_samples:
+                    results.extend(batch_samples)
 
-                    # Parse batch response
-                    batch_samples = self._parse_batch_response(response)
+        else:
+            # Sequential execution
+            logger.info("Using sequential execution")
+            with tqdm(total=num_samples, desc="Generating samples", unit="sample") as pbar:
+                for batch_config in batch_configs:
+                    batch_samples = self._generate_single_batch(batch_config, usage_counter=usage_counter)
 
                     if batch_samples:
-                        results.extend(batch_samples[:current_batch_size])
-                        logger.info(f"Successfully generated {len(batch_samples)} samples in this batch")
+                        results.extend(batch_samples)
                         pbar.update(len(batch_samples))
-                    else:
-                        logger.warning(f"Failed to parse batch {batch_idx + 1}, skipping")
 
-                except Exception as e:
-                    logger.error(f"Error generating batch {batch_idx + 1}: {e}")
-
-                # Report usage after each batch (1 iteration = 1 batch)
-                usage_counter.estimate_usage(1)
+                    # Estimate usage after each batch
+                    if usage_counter:
+                        usage_counter.estimate_usage(n=1)
 
         logger.info(f"Successfully generated {len(results)}/{num_samples} samples")
 
         return results[:num_samples]
+
+    def _generate_single_batch(
+        self,
+        batch_config: Dict,
+        usage_counter: ModelUsageCounter = None
+    ) -> List[Dict]:
+        """
+        Generate a single batch of samples.
+
+        Args:
+            batch_config: Dict containing batch configuration:
+                - batch_idx: batch index
+                - batch_size: number of samples to generate
+                - demo_examples: optional demo examples
+                - patterns: extracted patterns
+                - temperature: generation temperature
+                - max_tokens: max tokens per generation
+            usage_counter: Optional ModelUsageCounter for tracking token usage
+
+        Returns:
+            List of generated samples
+        """
+        batch_idx = batch_config["batch_idx"]
+        batch_size = batch_config["batch_size"]
+        demo_examples = batch_config["demo_examples"]
+        patterns = batch_config["patterns"]
+        temperature = batch_config["temperature"]
+        max_tokens = batch_config["max_tokens"]
+
+        logger.info(f"Generating batch {batch_idx + 1} with {batch_size} samples...")
+
+        # Build prompt for batch generation
+        prompt = self._build_batch_prompt(
+            demo_examples=demo_examples,
+            patterns=patterns,
+            batch_size=batch_size
+        )
+
+        # Generate using model client
+        try:
+            response = self.model.generate(
+                prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                n=1,
+                usage_counter=usage_counter
+            )
+
+            # Parse batch response
+            batch_samples = self._parse_batch_response(response)
+
+            if batch_samples:
+                logger.info(f"Successfully generated {len(batch_samples)} samples in batch {batch_idx + 1}")
+                return batch_samples[:batch_size]
+            else:
+                logger.warning(f"Failed to parse batch {batch_idx + 1}, returning empty list")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error generating batch {batch_idx + 1}: {e}")
+            return []
 
     def generate_patterns(self, demo_examples: List[Dict], usage_counter: ModelUsageCounter = None) -> str:
         """

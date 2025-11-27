@@ -50,10 +50,10 @@ class TaskExecutor:
 
         return executor
 
-    def execute(self) -> Dataset:
+    def execute(self, parallel_executor=None) -> Dataset:
         dataset = Dataset()
         # for executor in self.executors:
-        #     dataset.extend(executor.execute())
-        dataset.extend(self.executor.execute())
+        #     dataset.extend(executor.execute(parallel_executor=parallel_executor))
+        dataset.extend(self.executor.execute(parallel_executor=parallel_executor))
 
         return dataset

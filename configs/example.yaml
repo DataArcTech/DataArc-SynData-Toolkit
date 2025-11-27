@@ -2,6 +2,8 @@
 seed: 2024
 # CUDA device for all GPU operations (vLLM, SentenceTransformer, MinerU)
 device: cuda:0
+# Number of parallel workers to accelerate the process (default to 1 as sequential processing)
+n_workers: 1
 # synthetic dataset output directory. Data will save in {output_dir}/{task_name}_final.{export_format}
 output_dir: ./outputs/gsm8k
 # export dataset format
@@ -39,6 +41,7 @@ task:
       output_instruction: |
         The output should contain reasoning process step by step.
       num_samples: 10        # number of initial data
+      batch_size: 5          # Batch size for generation
       temperature: 1.0       # temperature for LLM in initial data generation
 
   # web task configuration

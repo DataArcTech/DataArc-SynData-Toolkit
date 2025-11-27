@@ -14,7 +14,7 @@ class DistillTaskExecutor(BaseTaskExecutor):
     ) -> None:
         super(DistillTaskExecutor, self).__init__(config, llm)
 
-    def execute(self) -> Dataset:
+    def execute(self, parallel_executor=None) -> Dataset:
         """Execute distillation task: pure synthetic data generation without retrieval."""
 
         logger.info("=== Step: Loading Demo Examples (if provided) ===")
@@ -35,7 +35,8 @@ class DistillTaskExecutor(BaseTaskExecutor):
 
         logger.info("=== Step: Generating Synthetic Dataset ===")
         samples = distillation.generate(
-            demo_examples=demo_examples if demo_examples else None
+            demo_examples=demo_examples if demo_examples else None,
+            parallel_executor=parallel_executor
         )
         logger.info(f"Generated {len(samples)} synthetic samples")
 

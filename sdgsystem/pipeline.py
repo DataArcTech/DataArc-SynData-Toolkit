@@ -12,10 +12,12 @@ from .evaluation import Evaluator
 from .evaluation.answer_comparison import SemanticComparison
 from .generation import BaseRewriter
 from .translation.translator import Translator
+from .parallel import ParallelExecutor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 logger = logging.getLogger(__name__)
+
 
 
 class Pipeline:
@@ -23,6 +25,9 @@ class Pipeline:
         config: SDGSConfig
     ) -> None:
         self.config = config
+
+        # parallel executor
+        self.parallel_executor = ParallelExecutor(n_workers=self.config.n_workers)
 
         # models
         self.llm = ModelClient(self.config.generator_config, self.config.answer_config, self.config.postprocess_config)
@@ -58,7 +63,7 @@ class Pipeline:
             export_format: Format to export (jsonl, json, etc.)
         """
         # 1. Generate initial dataset (task-specific steps logged in executor)
-        dataset = self.task_executor.execute()
+        dataset = self.task_executor.execute(parallel_executor=self.parallel_executor)
 
         # 2. Initial evaluation with inference config (binary: solved vs unsolved)
         logger.info("=== Step: Evaluating Initial Dataset ===")
@@ -67,7 +72,7 @@ class Pipeline:
 
         # 3. Rewrite samples based on difficulty
         logger.info("=== Step: Rewriting Samples Based on Difficulty ===")
-        rewritten_dataset = self.rewriter.rewrite(dataset, initial_evaluation)
+        rewritten_dataset = self.rewriter.rewrite(dataset, initial_evaluation, parallel_executor=self.parallel_executor)
         logger.info(f"Rewriting completed: {len(rewritten_dataset)} samples processed")
 
         # 4. Re-evaluate rewritten samples with scoring config (granular scoring)
@@ -172,5 +177,3 @@ class Pipeline:
 
         except Exception as e:
             print(f"Warning: Failed to cleanup models: {e}")
-
-

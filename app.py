@@ -3131,6 +3131,7 @@ def create_config_dict(
     input_instruction: str,
     output_instruction: str,
     num_samples: int,
+    n_workers: int,
     llm_provider: str,
     llm_model: str,
     llm_api_key: str,
@@ -3171,6 +3172,7 @@ def create_config_dict(
         "device": cuda_device,
         "output_dir": output_dir or "./outputs",
         "export_format": "jsonl",
+        "n_workers": n_workers,
         "task": {
             "task_type": task_type.lower() if task_type else "local",  # Convert to lowercase: Local -> local, Web -> web, Cloud -> cloud
             "name": task_name or "custom_task",
@@ -3325,6 +3327,7 @@ def generate_data(
     input_instruction: str,
     output_instruction: str,
     num_samples: int,
+    n_workers: int,
     llm_provider: str,
     llm_model: str,
     llm_api_key: str,
@@ -3424,6 +3427,7 @@ def generate_data(
             input_instruction=input_instruction,
             output_instruction=output_instruction,
             num_samples=num_samples,
+            n_workers=n_workers,
             llm_provider=llm_provider,
             llm_model=llm_model,
             llm_api_key=llm_api_key,
@@ -4009,6 +4013,22 @@ with gr.Blocks(title="DataArc SDG - Synthetic Data Generator", theme=gr.themes.S
                             show_label=False
                         )
 
+                    # Number of workers
+                    with gr.Group(elem_classes=["form-field"]):
+                        gr.HTML("""
+                            <div class="field-label-with-icon">
+                                <span class="field-label-text">Number of Parallel Processes</span>
+                            </div>
+                            <div class="field-label-info">Number of parallel workers for processing. Default is 1 (sequential processing).</div>
+                        """)
+                        n_workers = gr.Number(
+                            label="",
+                            value=1,
+                            minimum=1,
+                            step=1,
+                            show_label=False
+                        )
+
                     # Custom file upload with Figma design (Local-only)
                     with gr.Group(elem_classes=["file-upload-container"], elem_id="documents_group", visible=True) as documents_group:
                         gr.HTML("""
@@ -4364,6 +4384,7 @@ with gr.Blocks(title="DataArc SDG - Synthetic Data Generator", theme=gr.themes.S
             input_instruction,
             output_instruction,
             num_samples,
+            n_workers,
             llm_provider,
             llm_model,
             llm_api_key,

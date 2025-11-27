@@ -1,7 +1,7 @@
 """
 Statistic and estimation for the token and time usage when using models
 """
-
+import threading
 import logging
 logging.basicConfig(
     level=logging.INFO,
@@ -16,7 +16,8 @@ class ModelUsageCounter:
     
     def __init__(self, 
         total: int = 0, 
-        name: str = "Model"
+        name: str = "Model", 
+        parallel: bool = False
     ) -> None:
         """
         Initialize token and time counter
@@ -25,6 +26,7 @@ class ModelUsageCounter:
             total: Anticipated number of each iteration unit.
             name: The module name used for identification when using logging.info: 
                 [{name} Usage]: completed=XXXX, token=XXXX, time=XXXX || remain=XXXX, remain_token_anticipation=XXXX, remain_time_anticipation=XXXX
+            parallel: Whether to be used in parallel processing. If parallel, time needs to be counted additionally.
         """
         self.name = name
         self.total = total
@@ -35,6 +37,10 @@ class ModelUsageCounter:
         self.completed: int = 0    # number of iteration unit
         self.remain: int = self.total - self.completed     # number of remain iteration unit
 
+        # parallel setting
+        self._is_parallel = parallel
+        self._lock = threading.RLock()
+
     def add_usage(self, 
         n_token: int, 
         time: float,
@@ -44,9 +50,22 @@ class ModelUsageCounter:
         Args: 
             n_token: token cost
             time: time cost
+        
+        if add_usage in parallel processing, time will not be counted. 
+        Please use set_parallel_time(time) in parallel processing.
         """
-        self.token += n_token
-        self.time += time
+        with self._lock:
+            self.token += n_token
+            if not self._is_parallel:
+                self.time += time
+
+    def set_sequential(self):
+        self._is_parallel = False
+    def set_parallel(self):
+        self._is_parallel = True
+    def set_parallel_time(self, time: float):
+        if self._is_parallel:
+            self.time = time
 
     def estimate_usage(self, n):
         """
@@ -54,16 +73,18 @@ class ModelUsageCounter:
         Args:
             n: the number of iteration units
         """
-        self.completed += n
-        self.remain -= n
+        with self._lock:
+            n = min(self.remain, n)
+            self.remain -= n
+            self.completed += n
 
-        avg_token = self.token / self.completed
-        avg_time = self.time / self.completed
+            avg_token = self.token / self.completed
+            avg_time = self.time / self.completed
 
-        remain_token_anticipation = int(avg_token * self.remain)
-        remain_time_anticipation = int(avg_time * self.remain)
+            remain_token_anticipation = int(avg_token * self.remain)
+            remain_time_anticipation = avg_time * self.remain
 
-        logger.info(f"[{self.name} Usage]: completed={self.completed}, token={self.token}, time={self.time:.2f} || remain={self.remain}, remain_token_anticipation={remain_token_anticipation}, remain_time_anticipatioin={remain_time_anticipation:.2f}")
+            logger.info(f"[{self.name} Usage]: completed={self.completed}, token={self.token}, time={self.time:.2f} || remain={self.remain}, remain_token_anticipation={remain_token_anticipation}, remain_time_anticipatioin={remain_time_anticipation:.2f}")
 
     def __str__(self) -> str:
         return f"[{self.name} Usage]: completed={self.completed}, remain={self.remain}, token={self.token}, time={self.time:.2f}"

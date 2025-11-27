@@ -23,7 +23,7 @@ class LocalTaskExecutor(BaseTaskExecutor):
         super(LocalTaskExecutor, self).__init__(config, llm)
         self.config: LocalTaskConfig
 
-    def execute(self) -> Dataset:
+    def execute(self, parallel_executor=None) -> Dataset:
         """Execute local task: document processing → retrieval → generation → dataset."""
 
         logger.info("=== Step: Loading Documents and Demo Examples ===")
@@ -88,7 +88,8 @@ class LocalTaskExecutor(BaseTaskExecutor):
             task_definition=self.config.task_instruction,
             demo_examples=demo_examples,
             passages=reference_passages,
-            usage_counter=usage_counter_generation
+            usage_counter=usage_counter_generation,
+            parallel_executor=parallel_executor
         )
         logger.info(f"Generated dataset with {len(dataset)} samples")
 
