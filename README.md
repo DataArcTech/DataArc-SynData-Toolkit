@@ -1,4 +1,7 @@
 # DataArc SynData Toolkit
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![Framework: uv](https://img.shields.io/badge/Package_Manager-uv-42b983.svg)](https://github.com/astral-sh/uv) [![Gradio UI](https://img.shields.io/badge/GUI-Gradio-ff6f00.svg)](https://github.com/gradio-app/gradio) [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-ffa000.svg)](https://docs.pydantic.dev/)
+
 *A modular, highly user-friendly synthetic data generation toolkit supporting multi-source, multi-language data synthesis.*
 
 ### Easily synthesize training data for LLMs with zero-code [CLI](#:rocket:-Quick-Start) and [GUI](#:desktop_computer:-Synthesizing-Data-with-GUI) !

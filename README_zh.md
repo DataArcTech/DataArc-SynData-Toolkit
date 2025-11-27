@@ -1,5 +1,7 @@
 # DataArc SynData Toolkit
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![Framework: uv](https://img.shields.io/badge/Package_Manager-uv-42b983.svg)](https://github.com/astral-sh/uv) [![Gradio UI](https://img.shields.io/badge/GUI-Gradio-ff6f00.svg)](https://github.com/gradio-app/gradio) [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-ffa000.svg)](https://docs.pydantic.dev/)
+
 *一个模块化、高度易用的合成数据生成工具集，支持多来源、多语言的数据合成。*
 
 ### 使用零代码[命令行](#:rocket:-快速开始)与[可视化界面](#:desktop_computer:-可视化界面)，轻松合成大模型训练数据！
