@@ -2,6 +2,7 @@ import logging
 
 from .base import *
 from ..distillation.sdg_distill import SDGDistillation
+from ..distillation.sdg_mm_distill import SDGMMDistillation
 from ..documents.load import DocumentLoader
 
 logger = logging.getLogger(__name__)
@@ -26,18 +27,41 @@ class DistillTaskExecutor(BaseTaskExecutor):
         else:
             logger.info("No demo examples provided, using zero-shot generation")
 
-        logger.info("=== Step: Initializing Distillation Generator ===")
-        distillation = SDGDistillation(
-            model=self.llm,
-            config=self.config
-        )
+        logger.info("=== Step: Initializing multi-modal data generation (if provided) ===")
+        image_paths = []
+        if self.config.image_dir:
+            loader = DocumentLoader(corpus_paths=[])
+            image_paths = loader.load_image_paths(self.config.image_dir)
+            logger.info(f"Loaded {len(image_paths)} images for multi-modal generation")
+        else:
+            logger.info("No image directory provided, proceeding with text-only generation")
+
+        if image_paths:
+            logger.info("=== Step: Initializing Multi-Modal Distillation Generator ===")
+            distillation = SDGMMDistillation(
+                model=self.llm,
+                config=self.config
+            )
+        else:
+            logger.info("=== Step: Initializing Distillation Generator ===")
+            distillation = SDGDistillation(
+                model=self.llm,
+                config=self.config
+            )
         logger.info("Distillation generator initialized")
 
         logger.info("=== Step: Generating Synthetic Dataset ===")
-        samples = distillation.generate(
-            demo_examples=demo_examples if demo_examples else None,
-            parallel_executor=parallel_executor
-        )
+        if image_paths:
+            samples = distillation.generate(
+                image_paths=image_paths,
+                demo_examples=demo_examples if demo_examples else None,
+                parallel_executor=parallel_executor
+            )
+        else:
+            samples = distillation.generate(
+                demo_examples=demo_examples if demo_examples else None,
+                parallel_executor=parallel_executor
+            )
         logger.info(f"Generated {len(samples)} synthetic samples")
 
         logger.info("=== Step: Creating Dataset ===")

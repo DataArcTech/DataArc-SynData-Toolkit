@@ -98,6 +98,7 @@ class WebTaskConfig(BaseTaskConfig):
 class DistillTaskConfig(BaseTaskConfig):
     """Task Configuration of model distill"""
     batch_size: int = Field(default=5, gt=0, description="batch size for generation")
+    image_dir: str = Field(default=None, description="directory of images for distillation")
     temperature: float = Field(
         default=DEFAULT_TEMPERATURE,
         gt=0.,

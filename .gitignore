@@ -13,3 +13,4 @@ wheels/
 sdgsystem/configs/web.yaml
 sdgsystem/configs/distill.yaml
 data/
+outputs/

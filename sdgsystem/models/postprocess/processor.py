@@ -1,4 +1,5 @@
 from typing import List, Tuple, Union
+from pathlib import Path
 
 from ...configs.config import (
     PostProcessConfig, 
@@ -64,3 +65,14 @@ class PostProcessor:
         **kwargs
     ) -> Union[str, List[str], List[List[str]]]:
         return self.processor.generate(prompts, n, answer_extractor, processor_args, usage_counter, **kwargs)
+
+    def multimodal_generate(self, 
+        prompts: Union[str, List[str]], 
+        image_paths: Union[Path, List[Path]],
+        n: int = 1, 
+        answer_extractor: AnswerExtractor = None, 
+        processor_args: ProcessorArgs = ProcessorArgs(), 
+        usage_counter: ModelUsageCounter = None, 
+        **kwargs
+    ) -> Union[str, List[str], List[List[str]]]:
+        return self.processor.multimodal_generate(prompts, image_paths, n, answer_extractor, processor_args, usage_counter, **kwargs)

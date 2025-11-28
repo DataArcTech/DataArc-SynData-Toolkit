@@ -2,6 +2,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from typing import List, Union, Tuple
+from pathlib import Path
 from vllm import LLM, SamplingParams
 import openai
 from openai.types.chat.chat_completion import ChatCompletion
@@ -48,6 +49,29 @@ class BaseLanguageModel(ABC):
         """
         pass
 
+    @abstractmethod
+    def _get_multimodal_responses(self, 
+        prompts: Union[str, List[str]], 
+        image_paths: Union[Path, List[Path]],
+        n: int=1, 
+        usage_counter: ModelUsageCounter = None, 
+        **kwargs
+    ) -> Union[str, List[str], List[List[str]]]:
+        """
+        get response from model
+        Args: 
+            prompt: str, the prompt
+            image_paths: Path or List[Path], the image paths
+            kwargs: Arguments for LLM inference
+            - temperature: float
+            - top_p: float
+            - ...
+
+        Returns:
+            Tuple of (response, token_usage)
+        """
+        pass
+
     def generate(self, 
         prompts: Union[str, List[str]], 
         n: int = 1, 
@@ -70,6 +94,34 @@ class BaseLanguageModel(ABC):
             Tresponse
         """
         responses = self._get_responses(prompts, n, usage_counter, **kwargs)
+        if answer_extractor is not None:
+            responses = answer_extractor.extract_answers(responses)
+        return responses
+
+    def multimodal_generate(self, 
+        prompts: Union[str, List[str]], 
+        image_paths: Union[Path, List[Path]],
+        n: int = 1, 
+        answer_extractor: AnswerExtractor = None, 
+        usage_counter: ModelUsageCounter = None, 
+        **kwargs
+    ) -> Union[str, List[str], List[List[str]]]:
+        """
+        get extracter answers from model
+        Args: 
+            prompt: str, the prompt
+            image_paths: Path or List[Path], the image paths
+            answer_extractor: instance to extractor answer from models' responses
+            usage_counter: instance to count and estimate the token and time usage of model
+            kwargs: Arguments for LLM inference
+            - temperature: float
+            - top_p: float
+            - ...
+
+        Returns:
+            Tresponse
+        """
+        responses = self._get_multimodal_responses(prompts, image_paths, n, usage_counter, **kwargs)
         if answer_extractor is not None:
             responses = answer_extractor.extract_answers(responses)
         return responses
@@ -158,6 +210,81 @@ class APIModel(BaseLanguageModel):
         final_responses = final_responses[0] if is_single_prompt else final_responses
         return final_responses
 
+    def _get_multimodal_responses(self, 
+        prompts: Union[str, List[str]], 
+        image_paths: Union[Path, List[Path]],
+        n: int=1, 
+        usage_counter: ModelUsageCounter = None, 
+        **kwargs
+    ) -> Union[str, List[str], List[List[str]]]:
+        import base64
+
+        # Function to encode the image
+        def encode_image(image_path):
+            with open(image_path, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode("utf-8")
+            
+        temperature: float = kwargs.pop("temperature", 0.0)
+        max_tokens: int = kwargs.pop("max_tokens", 4000)
+
+        is_single_prompt = isinstance(prompts, str)
+        prompts = [prompts] if is_single_prompt else prompts
+        final_responses = []
+
+        if isinstance(prompts, str): prompts = [prompts]
+        if isinstance(image_paths, Path): image_paths = [image_paths]
+
+        for image_path, prompt in zip(image_paths, prompts):
+            base64_image = encode_image(image_path)
+
+            retry_count = 0
+            responses: List[str] = None
+
+            st = time.time()
+            token_used: int = 0
+
+            while responses is None and retry_count < self.max_retry:
+                retry_count += 1
+                try:
+                    completion = self.model.chat.completions.create(
+                        model=self.model_name,
+                        messages=[
+                            {
+                                "role": ROLE_USER,
+                                "content": [
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}, 
+                                    },
+                                    {"type": "text", "text": prompt},
+                                ],
+                            }
+                        ],
+                        temperature=temperature, 
+                        max_tokens=max_tokens, 
+                        n=n, 
+                        **kwargs
+                    )
+                    token_used += completion.usage.total_tokens
+                    responses = [choice.message.content.strip() for choice in completion.choices]
+                except Exception as e:
+                    logger.warning(f"API call failed (attempt {retry_count}/{self.max_retry}): {e}")
+                    time.sleep(self.retry_delay)
+            
+            if usage_counter:
+                usage_counter.add_usage(token_used, time.time() - st)
+
+            # Check if responses is still None after all retries
+            if responses is None:
+                raise RuntimeError(f"Failed to get response from API after {self.max_retry} retries")
+
+            if n == 1:
+                final_responses.append(responses[0])    # List[str]
+            else:
+                final_responses.append(responses)       # List[List[str]]
+
+        final_responses = final_responses[0] if is_single_prompt else final_responses
+        return final_responses
 
 class LocalModel(BaseLanguageModel):
     """
@@ -260,6 +387,15 @@ class LocalModel(BaseLanguageModel):
         response = self.generate_with_prompts(prompts, usage_counter, temperature, max_tokens, top_p, n)
         
         return response
+
+    def _get_multimodal_responses(self, 
+        prompts: Union[str, List[str]], 
+        image_paths: Union[Path, List[Path]],
+        n: int=1, 
+        usage_counter: ModelUsageCounter = None, 
+        **kwargs
+    ) -> Union[str, List[str], List[List[str]]]:
+        raise NotImplementedError("Multimodal APIModel is not implemented yet.")
 
     def generate_with_prompts(self,
         prompts: Union[str, List[str]], 

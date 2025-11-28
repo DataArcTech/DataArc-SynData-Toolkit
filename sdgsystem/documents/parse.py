@@ -367,6 +367,12 @@ class MinerUParser(BaseParser):
             # Clean markdown content
             cleaned_content = self._clean_markdown(md_content)
 
+            # Collect image file paths
+            image_paths = []
+            for img_path in sorted(os.listdir(local_image_dir)):
+                if img_path.endswith(('.jpg')):
+                    image_paths.append(os.path.join(os.path.basename(local_image_dir), img_path))
+
             logger.info(f"Parsing completed: {file_name}")
             logger.info(f"Processed {len(images_list)} page(s)")
             logger.info(f"Original size: {len(md_content)} chars, Cleaned size: {len(cleaned_content)} chars")
@@ -375,6 +381,7 @@ class MinerUParser(BaseParser):
             results = [{
                 'page_no': 0,
                 'content': cleaned_content,
+                'image_paths': image_paths,
                 'parse_method': f'mineru-pipeline-{self.parse_method}'
             }]
 
@@ -390,10 +397,10 @@ class MinerUParser(BaseParser):
         text = re.sub(r'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', '', text)
 
         # Remove markdown image syntax with file paths or URLs
-        text = re.sub(r'!\[([^\]]*)\]\([^\)]+\)', r'[Image: \1]', text)
+        # text = re.sub(r'!\[([^\]]*)\]\([^\)]+\)', r'[Image: \1]', text)
 
         # Remove HTML image tags
-        text = re.sub(r'<img[^>]*>', '', text)
+        # text = re.sub(r'<img[^>]*>', '', text)
 
         # Remove standalone base64 strings (very long alphanumeric sequences)
         text = re.sub(r'\b[A-Za-z0-9+/]{200,}={0,2}\b', '', text)

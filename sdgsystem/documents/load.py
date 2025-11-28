@@ -110,3 +110,38 @@ class DocumentLoader:
             logger.error(f"  Using empty demo examples list")
 
         return demo_examples
+
+
+    def load_image_paths(self, image_dir: str) -> List[Path]:
+        """
+        Load all image file paths from the specified directory.
+
+        Args:
+            image_dir: Directory path containing image files
+
+        Returns:
+            List of image file paths
+        """
+        image_path = Path(image_dir)
+        image_paths = []
+
+        if not image_path.exists():
+            logger.warning(f"Warning: Image directory not found: {image_dir}")
+            return image_paths
+
+        if not image_path.is_dir():
+            logger.warning(f"Warning: Not a directory: {image_dir}")
+            return image_paths
+
+        # supported_extensions = ['*.png', '*.jpg', '*.jpeg', '*.bmp', '*.gif']
+        supported_extensions = ['*.jpg', '*.jpeg']
+        for ext in supported_extensions:
+            image_paths.extend(image_path.glob(ext))
+
+        if not image_paths:
+            logger.warning(f"Warning: No image files found in: {image_dir}")
+        else:
+            for img_file in image_paths:
+                logger.info(f"Loaded image: {img_file}")
+
+        return image_paths

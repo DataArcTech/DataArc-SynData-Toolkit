@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from .answer_extraction import *
 from .models import *
 from .postprocess import *
@@ -41,6 +43,28 @@ class ModelClient:
             answer_extractor = self.answer_extractor
 
         responses = self.model.generate(prompts, n, answer_extractor, processor_args, usage_counter, **kwargs)
+        return responses
+
+    def multimodal_generate(self, 
+        prompts: Union[str, List[str]], 
+        image_paths: Union[Path, List[Path]],
+        n: int = 1, 
+        processor_args: ProcessorArgs = ProcessorArgs(), 
+        usage_counter: ModelUsageCounter = None, 
+        **kwargs
+    ) -> Union[str, List[str], List[List[str]]]:
+        """
+        get response from model
+        Output:
+            responses: str | List[str], tokens_used: int
+        """
+        if processor_args.answer_extraction is None or not processor_args.answer_extraction.enable:
+            answer_extractor = None
+        else:
+            prompts = self.answer_extractor.format_prompts(prompts)
+            answer_extractor = self.answer_extractor
+
+        responses = self.model.multimodal_generate(prompts, image_paths, n, answer_extractor, processor_args, usage_counter, **kwargs)
         return responses
 
     def get_model(self) -> BaseLanguageModel:
