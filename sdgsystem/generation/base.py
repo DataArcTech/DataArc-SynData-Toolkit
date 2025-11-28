@@ -4,6 +4,7 @@ from tqdm import tqdm
 from ..models import ModelClient, ProcessorArgs, ModelUsageCounter
 from ..prompts import SAFETY_SUFFIX
 from ..parallel import ParallelExecutor
+from ..buffer import TaskBuffer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,15 +15,21 @@ class BaseGenerator:
     Base Class for generating synthetic training data
     """
 
-    def __init__(self, model: ModelClient, config=None) -> None:
+    def __init__(self, 
+        model: ModelClient, 
+        config=None, 
+        buffer_dir: str = "buffer"
+    ) -> None:
         self.model = model
         self.config = config
+        self.buffer_dir = buffer_dir
 
     def parse_and_validate_samples(self,
         response_strings: List[Union[Dict, str]],
         output_instruction: str, 
         usage_counter: ModelUsageCounter = None, 
         parallel_executor: ParallelExecutor = None, 
+        buffer: TaskBuffer = None, 
     ) -> List[Dict]:
         """
         Parse raw LLM response strings and validate with majority voting.
@@ -96,16 +103,17 @@ class BaseGenerator:
             samples=parsed_samples,
             output_instruction=output_instruction, 
             usage_counter=usage_counter, 
-            parallel_executor=parallel_executor
+            parallel_executor=parallel_executor, 
+            buffer=buffer
         )
 
         return validated_samples
 
 
-    def _validate_batch(self,
-        batch_samples: List[Dict],
-        output_instruction: str = None,
-        usage_counter: ModelUsageCounter = None,
+    def _validate_batch(self, 
+        batch_samples: List[Dict], 
+        output_instruction: str,
+        usage_counter: ModelUsageCounter = None, 
     ) -> Tuple[List[Dict], int]:
         """
         Validate and improve samples using majority voting (always enabled).
@@ -160,6 +168,7 @@ class BaseGenerator:
         output_instruction: str,
         usage_counter: ModelUsageCounter = None, 
         parallel_executor: ParallelExecutor = None, 
+        buffer: TaskBuffer = None, 
     ) -> List[Dict]:
         """
         Validate and improve samples using majority voting (always enabled).
@@ -180,30 +189,39 @@ class BaseGenerator:
         batch_size = getattr(self.config, 'batch_size', 5) if self.config else 5
 
         # Process samples in batches
+        batches: List[List[Dict]] = []
+        for batch_start in range(0, len(samples), batch_size):
+            batch_end = min(batch_start + batch_size, len(samples))
+            batches.append(samples[batch_start:batch_end])
+
+        # reset buffer and usage_counter total to track batches (not samples)
+        buffer.resize_total(total=len(batches))
+        if usage_counter:
+            usage_counter.total = len(batches)
+
         if parallel_executor and parallel_executor.n_workers > 1:
             # parallel processing
-            batches: List[List[Dict]] = []
-            for batch_start in range(0, len(samples), batch_size):
-                batch_end = min(batch_start + batch_size, len(samples))
-                batches.append(samples[batch_start:batch_end])
-
             result_batches: List[Tuple[List[Dict], int]] = parallel_executor.execute(
                 iterable_inputs=batches,
                 process_function=self._validate_batch,
+                output_instruction=output_instruction,
                 usage_counter=usage_counter,
-                n=batch_size,
-                output_instruction=output_instruction
+                n=1, # track per-batch completion to match buffer
+                buffer=buffer
             )
+
+            validated_batches: List[List[Dict]] = []
             for batch_validated_samples, batch_failed_count in result_batches:
-                validated_samples.extend(batch_validated_samples)
+                validated_batches.append(batch_validated_samples)
                 failed_count += batch_failed_count
                 
         else:
             # sequential processing
+            validated_batches: List[List[Dict]] = buffer.load(usage_counter)
             with tqdm(total=len(samples), desc="Validating samples", unit="sample") as pbar:
-                for batch_start in range(0, len(samples), batch_size):
-                    batch_end = min(batch_start + batch_size, len(samples))
-                    batch_samples = samples[batch_start:batch_end]
+                for sample_idx, batch_samples in enumerate(batches):
+                    if buffer and buffer.detail_progress[sample_idx]:
+                        continue
 
                     # Build prompts for this batch
                     batch_validated_samples, batch_failed_count = self._validate_batch(
@@ -212,14 +230,21 @@ class BaseGenerator:
                         usage_counter=usage_counter
                     )
 
-                    validated_samples.extend(batch_validated_samples)
+                    validated_batches.append(batch_validated_samples)
                     failed_count += batch_failed_count
 
                     pbar.update(len(batch_samples))
 
                     # Estimate usage for the batch
                     if usage_counter:
-                        usage_counter.estimate_usage(n=len(batch_samples))
+                        usage_counter.estimate_usage(n=1)  # track per-batch completion to match buffer
+                    # save buffer
+                    if buffer:
+                        buffer.add_progress([sample_idx])
+                        buffer.save(validated_batches, usage_counter)
+
+        for batch in validated_batches:
+            validated_samples.extend(batch)
 
         # Summary
         success_count = len(samples) - failed_count

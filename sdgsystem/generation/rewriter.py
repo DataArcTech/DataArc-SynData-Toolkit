@@ -1,3 +1,4 @@
+import os
 from abc import ABC, abstractmethod
 from typing import List, Dict, Union
 from tqdm import tqdm
@@ -7,6 +8,7 @@ from ..dataset.dataset import Dataset
 from ..models import ModelClient, ModelUsageCounter
 from ..prompts import HARDER_SAMPLE_PROMPT, SIMPLER_SAMPLE_PROMPT
 from ..parallel import ParallelExecutor
+from ..buffer import TaskBuffer
 from .base import BaseGenerator
 
 
@@ -17,10 +19,11 @@ class BaseRewriter(ABC, BaseGenerator):
     """
     def __init__(self,
         model: ModelClient,
-        config: BaseRewriteConfig
+        config: BaseRewriteConfig, 
+        buffer_dir: str = "buffer"
     ) -> None:
         """Initialize the Rewriter"""
-        super(BaseRewriter, self).__init__(model, config)
+        super(BaseRewriter, self).__init__(model, config, buffer_dir)
         self.config = config
     
     @abstractmethod
@@ -77,31 +80,47 @@ class BaseRewriter(ABC, BaseGenerator):
         # initialize the usage counter for rewriter-generate
         # estimate the token and time usage with each sample
         usage_counter_gen = ModelUsageCounter(total=len(samples), name="Rewriter-Generation")
-
+        # initialize buffer
+        buffer_gen = TaskBuffer(total=len(samples), save_dir=os.path.join(self.buffer_dir, "rewrite-generation"))
+        # rewrite
         if parallel_executor and parallel_executor.n_workers > 1:
             # parallel processing
             rewrite_sample_strings: List[Union[Dict, str]] = parallel_executor.execute(
                 iterable_inputs=samples, 
                 process_function=self._rewrite_single_sample, 
                 usage_counter=usage_counter_gen, 
-                n=1
+                n=1, 
+                buffer=buffer_gen
             )
         else:
             # sequential processing
-            rewrite_sample_strings: List[str] = []
+            rewrite_sample_strings: List[str] = buffer_gen.load(usage_counter_gen)
+            sample_idx: int = 0
             for sample in tqdm(samples, desc="Rewriting samples", unit="sample"):
+                if buffer_gen and buffer_gen.detail_progress[sample_idx]:
+                    sample_idx += 1
+                    continue
+
                 rewrite_sample_strings.append(self._rewrite_single_sample(sample, usage_counter_gen))
+
                 usage_counter_gen.estimate_usage(n=1)
+                buffer_gen.add_progress([sample_idx])
+                buffer_gen.save(rewrite_sample_strings, usage_counter_gen)
+                sample_idx += 1
 
         # step3. validate sample strings and parse them to samples
         # initialize the usage counter for rewriter-validate
         # estimate the token and time usage with each sample
         usage_counter_val = ModelUsageCounter(total=len(rewrite_sample_strings), name="Rewriter-Validation")
+        # initialize buffer
+        buffer_val = TaskBuffer(total=len(samples), save_dir=os.path.join(self.buffer_dir, "rewrite-validation"))
+        # parse and validate
         rewrite_samples: List[Dict] = self.parse_and_validate_samples(
             response_strings=rewrite_sample_strings,
             output_instruction=self.config.output_instruction, 
             usage_counter=usage_counter_val, 
-            parallel_executor=parallel_executor
+            parallel_executor=parallel_executor, 
+            buffer=buffer_val
         )
         rewrite_dataset.add_samples(rewrite_samples)
 

@@ -41,7 +41,9 @@ A few lines of code deliver over 20% performance improvements.
 
 [25/11/17] We open-sourced our synthetic data platform.
 
-[25/11/27] We added parallel processing module to significantly accelerate the synthetic data generation pipeline.
+[25/11/27] We added **parallel processing** to significantly accelerate the synthetic data generation pipeline.
+
+[25/11/28] We added **intermediate result saving**, allowing users to resume from the last successful stage instead of restarting the entire pipeline — a major **token saver**.
 
 > [!TIP]
 >

@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable, Callable, Any
 
 from .models import ModelUsageCounter
+from .buffer import TaskBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class ParallelExecutor:
         process_function: Callable[[Any], Any],
         usage_counter: ModelUsageCounter = None, 
         n: int = 1, 
+        buffer: TaskBuffer = None, 
         **kwargs
     ) -> Any:
         """
@@ -46,54 +48,49 @@ class ParallelExecutor:
                 e.g. iterable_inputs = [[1, 2, 3], [4, 5, 6], ..., [22, 23]], then n=3
             **kwargs: additional arguments for process_function, which are fixed for each iteration
         """
-        results = [None] * len(iterable_inputs)
-        total_tasks = len(iterable_inputs)
+        # load buffer
+        if buffer:
+            results: list = buffer.load(usage_counter)
+            remain = len(iterable_inputs) - len(results)
+            if remain < 0:
+                raise Exception(f"Number of iterable inputs ({len(iterable_inputs)}) is less than the number of results in buffer ({len(results)})!")
+            elif remain > 0:
+                results = results + [None] * remain
+        else:
+            results = [None] * len(iterable_inputs)
 
+        # set usage counter
         if usage_counter:
             usage_counter.set_parallel()
             kwargs["usage_counter"] = usage_counter
 
-        logger.info(f"Starting parallel execution: {total_tasks} tasks with {self.n_workers} workers")
-
         with ThreadPoolExecutor(max_workers=self.n_workers) as executor:
-            # Submit all tasks at once
             future_to_idx = {
-                executor.submit(process_function, inp, **kwargs): idx for idx, inp in enumerate(iterable_inputs)
-            }
-
-            logger.info(f"Submitted {len(future_to_idx)} tasks to thread pool")
+                executor.submit(process_function, inp, **kwargs): idx for idx, inp in enumerate(iterable_inputs) if not buffer or not buffer.detail_progress[idx]
+            }   # filter out processed samples (process all if no buffer)
 
             st = time.time()
-            completed = 0
-
             try:
                 for future in as_completed(future_to_idx, timeout=self.timeout):
                     try:
                         result = future.result()
                         # ensure the order of the results is preserved.
-                        index = future_to_idx[future]
+                        index = future_to_idx[future]   
                         results[index] = result
-
-                        completed += 1
-                        logger.info(f"Task {index} completed ({completed}/{total_tasks})")
 
                         # estimate the token and time usage
                         if usage_counter:
                             usage_counter.set_parallel_time(time.time() - st)
                             usage_counter.estimate_usage(n=n)
+
+                        if buffer:
+                            buffer.add_progress([index])
+                            buffer.save(results, usage_counter)
+                        
                     except Exception as e:
-                        index = future_to_idx[future]
-                        logger.error(f"Task {index} failed with error: {e}", exc_info=True)
                         raise e
 
-            except TimeoutError as e:
-                logger.error(f"Parallel execution timed out after {self.timeout}s ({completed}/{total_tasks} tasks completed)")
-                raise e
             except Exception as e:
-                logger.error(f"Parallel execution failed after {completed}/{total_tasks} tasks completed: {e}")
                 raise e
-
-        elapsed = time.time() - st
-        logger.info(f"Parallel execution completed: {total_tasks} tasks in {elapsed:.2f}s")
-
+        
         return results

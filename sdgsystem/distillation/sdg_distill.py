@@ -5,6 +5,7 @@ This module provides a simple LLM-based generator that creates synthetic trainin
 data based on task instructions and optional demonstration examples.
 """
 
+import os
 import logging
 from typing import List, Dict, Optional
 from tqdm import tqdm
@@ -12,6 +13,7 @@ from tqdm import tqdm
 from ..models import ModelClient, ModelUsageCounter
 from ..configs.config import DistillTaskConfig
 from ..prompts import SDG_DISTILL_BATCH_GENERATION_PROMPT, PATTERN_GENERATION_PROMPT
+from ..buffer import TaskBuffer
 from .base import *
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,8 @@ class SDGDistillation(BaseDistillation):
     def __init__(
         self,
         model: ModelClient,
-        config: DistillTaskConfig
+        config: DistillTaskConfig,
+        buffer_dir: str = "buffer"
     ):
         """
         Initialize the synthetic data generator.
@@ -41,8 +44,9 @@ class SDGDistillation(BaseDistillation):
         Args:
             model: ModelClient instance
             config: DistillTaskConfig instance containing task configuration
+            buffer_dir: Directory for saving buffer/checkpoint files
         """
-        super().__init__(model, config)
+        super().__init__(model, config, buffer_dir)
 
         self.input_instruction = config.input_instruction
         self.output_instruction = config.output_instruction
@@ -70,15 +74,14 @@ class SDGDistillation(BaseDistillation):
         batch_size = self.config.batch_size
         results = []
 
-        # Calculate total iterations: 1 (pattern extraction if demos) + num_batches
+        # Calculate num_batches
         num_batches = (num_samples + batch_size - 1) // batch_size
-        total_iterations = (1 if demo_examples else 0) + num_batches
-        usage_counter = ModelUsageCounter(total=total_iterations, name="Distillation-Generation")
 
-        # Extract patterns from demo examples if provided
+        # Extract patterns from demo examples if provided (separate counter)
         patterns = ""
         if demo_examples:
-            patterns = self.generate_patterns(demo_examples, usage_counter)
+            usage_counter_pattern = ModelUsageCounter(total=1, name="Distillation-Pattern")
+            patterns = self.generate_patterns(demo_examples, usage_counter_pattern)
 
         logger.info(f"Generating {num_samples} synthetic samples in batches of {batch_size}...")
 
@@ -96,6 +99,11 @@ class SDGDistillation(BaseDistillation):
                 "max_tokens": max_tokens
             })
 
+        # Initialize usage_counter for batch generation (tracks batches to match buffer)
+        usage_counter = ModelUsageCounter(total=num_batches, name="Distillation-Generation")
+        # Initialize buffer
+        buffer = TaskBuffer(total=num_batches, save_dir=os.path.join(self.buffer_dir, "Distillation-Generation"))
+
         # Use parallel execution if available and n_workers > 1
         if parallel_executor and parallel_executor.n_workers > 1:
             logger.info(f"Using parallel execution with {parallel_executor.n_workers} workers")
@@ -105,7 +113,8 @@ class SDGDistillation(BaseDistillation):
                 iterable_inputs=batch_configs,
                 process_function=self._generate_single_batch,
                 usage_counter=usage_counter,
-                n=1  # Each batch is 1 iteration
+                n=1,  # track per-batch completion to match buffer
+                buffer=buffer
             )
 
             # Collect results from all batches
@@ -116,9 +125,14 @@ class SDGDistillation(BaseDistillation):
         else:
             # Sequential execution
             logger.info("Using sequential execution")
+            batch_results: List[List[Dict]] = buffer.load(usage_counter)
             with tqdm(total=num_samples, desc="Generating samples", unit="sample") as pbar:
-                for batch_config in batch_configs:
+                for batch_idx, batch_config in enumerate(batch_configs):
+                    if buffer and buffer.detail_progress[batch_idx]:
+                        continue
+
                     batch_samples = self._generate_single_batch(batch_config, usage_counter=usage_counter)
+                    batch_results.append(batch_samples)
 
                     if batch_samples:
                         results.extend(batch_samples)
@@ -126,7 +140,11 @@ class SDGDistillation(BaseDistillation):
 
                     # Estimate usage after each batch
                     if usage_counter:
-                        usage_counter.estimate_usage(n=1)
+                        usage_counter.estimate_usage(n=1)  # track per-batch completion to match buffer
+                    # Save buffer
+                    if buffer:
+                        buffer.add_progress([batch_idx])
+                        buffer.save(batch_results, usage_counter)
 
         logger.info(f"Successfully generated {len(results)}/{num_samples} samples")
 

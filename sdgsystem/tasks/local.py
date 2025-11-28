@@ -62,7 +62,7 @@ class LocalTaskExecutor(BaseTaskExecutor):
             logger.info("Skipping document processing (no documents or parser not configured)")
 
         logger.info("=== Step: Extracting Keywords ===")
-        usage_counter_keywords = ModelUsageCounter(total=1, name="LocalTask-Keywords")
+        usage_counter_keywords = ModelUsageCounter(total=1, name="Local-Keywords")
         keywords = self.extract_keywords(
             self.config.task_instruction,
             demo_examples,
@@ -78,9 +78,8 @@ class LocalTaskExecutor(BaseTaskExecutor):
         logger.info(f"Retrieved {len(reference_passages)} unique passages")
 
         logger.info("=== Step: Generating Synthetic Dataset ===")
-        # Calculate total iterations: 1 (pattern) + num_samples (generation) + num_samples (validation)
-        total_iterations = 1 + self.config.generation.num_samples * 2
-        usage_counter_generation = ModelUsageCounter(total=total_iterations, name="LocalTask-Generation")
+        # Pass a placeholder counter; generator creates its own counters with correct totals
+        usage_counter_generation = ModelUsageCounter(total=1, name="Local")
 
         data_generator = DataGenerator(self.llm, self.config.generation)
 

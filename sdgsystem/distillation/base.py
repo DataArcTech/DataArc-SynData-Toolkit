@@ -33,7 +33,8 @@ class BaseDistillation(ABC):
     def __init__(
         self,
         model: ModelClient,
-        config: DistillTaskConfig
+        config: DistillTaskConfig,
+        buffer_dir: str = "buffer"
     ):
         """
         Initialize the synthetic data generator.
@@ -41,10 +42,12 @@ class BaseDistillation(ABC):
         Args:
             model: ModelClient instance
             config: DistillTaskConfig instance containing task configuration
+            buffer_dir: Directory for saving buffer/checkpoint files
         """
         self.model = model
         self.config = config
         self.task_instruction = config.task_instruction
+        self.buffer_dir = buffer_dir
 
     @abstractmethod
     def generate(

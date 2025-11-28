@@ -1,12 +1,10 @@
 """
 Statistic and estimation for the token and time usage when using models
 """
+from typing import Dict
 import threading
 import logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +38,17 @@ class ModelUsageCounter:
         # parallel setting
         self._is_parallel = parallel
         self._lock = threading.RLock()
+
+    def load_from_dict(self, usage: Dict):
+        self.total = usage.get("total", 0)
+        self.name = usage.get("name", self.name)
+        self.token = usage.get("token", 0)
+        self.time = usage.get("time", 0.0)
+        self.completed = usage.get("completed", 0)
+        self.remain = self.total - self.completed
+        if self.remain < 0:    # verify the remain to > 0
+            self.remain = 0
+            self.total = self.completed
 
     def add_usage(self, 
         n_token: int, 
