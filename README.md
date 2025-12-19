@@ -251,7 +251,7 @@ pnpm install
 pnpm dev
 ```
 
-If you have any doubt about regrading our Web UI, check our [Web UI document](docs/WEBUI.md).
+If you have any doubt about regrading our Web UI, check our [Web UI document](/sdgsystem/webui/README.md).
 
 ## :date: Schedule for the Next Release
 
