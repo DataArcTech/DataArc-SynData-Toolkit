@@ -12,7 +12,7 @@
 
 ## :dart: Project Overview
 
-**DataArc SynData Toolkit** is a synthetic data generation toolkit developed and open-sourced by DataArc. It enables users to generate customized training data in one step through simple configuration files based on their requirements.
+**DataArc SynData Toolkit** is a synthetic data generation toolkit developed and open-sourced by DataArcTech (https://www.dataarctech.com/) and International Digital Economy Academy (https://www.idea.edu.cn/). It enables users to generate customized training data in one step through simple configuration files based on their requirements.
 
 ## :bulb: Key Features
 
@@ -73,9 +73,11 @@ We provide [three different use cases](docs/USE_CASES.md) that sythesize data th
 ## :file_folder: Project Structure
 
 ```
-dataarc-sdg/
+DataArc-SynData-Toolkit/
 ├── configs/                        # Configuration Examples
-│   └── example.yaml                # example YAML file
+│   ├── example.yaml                # SDG configuration example
+│   ├── sft_example.yaml            # SFT training configuration
+│   └── grpo_example.yaml           # GRPO training configuration
 │
 ├── sdgsystem/                      # Core Implementation
 │   ├── app/                        # FastAPI Backend (REST + SSE)
@@ -140,6 +142,14 @@ dataarc-sdg/
 │   │   ├── distill.py              # distillation task
 │   │   └── task_executor.py        # unified task executor
 │   │
+│   ├── trainer/                    # Model Training Module (verl)
+│   │   ├── methods/                # training method implementations
+│   │   │   ├── sft.py              # SFT training method
+│   │   │   └── grpo.py             # GRPO training method
+│   │   ├── config.py               # training configuration
+│   │   ├── data_preprocessing.py   # training data preprocessing
+│   │   └── launcher.py             # training job launcher
+│   │
 │   ├── translation/                # Multilingual Support
 │   │   └── translator.py           # translation utilities
 │   │
@@ -151,6 +161,8 @@ dataarc-sdg/
 │   ├── pipeline.py                 # main SDG pipeline
 │   ├── prompts.py                  # LLM prompts
 │   └── utils.py                    # utility functions
+│
+├── verl/                           # verl Training Framework
 │
 ├── docs/                           # Documentation
 │

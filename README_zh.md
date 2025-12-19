@@ -12,7 +12,7 @@
 
 ## :dart: 项目概述
 
-**DataArc SynData Toolkit**是由数创弧光开发并开源的合成数据工具集，能够根据使用者需求，通过简单配置文件一步到位合成所需训练数据。
+**DataArc SynData Toolkit**是由[数创弧光](https://www.dataarctech.com/)与[粤港澳大湾区数字经济研究院](https://www.idea.edu.cn/)联合开发并开源的合成数据工具集，能够根据使用者需求，通过简单配置文件一步到位合成所需训练数据。
 
 ## :bulb: 项目特色
 
@@ -76,9 +76,11 @@
 ## :file_folder: 项目结构
 
 ```
-dataarc-sdg/
+DataArc-SynData-Toolkit/
 ├── configs/                        # 配置样例
-│   └── example.yaml                # 配置样例YAML文件
+│   ├── example.yaml                # SDG配置样例
+│   ├── sft_example.yaml            # SFT训练配置样例
+│   └── grpo_example.yaml           # GRPO训练配置样例
 │
 ├── sdgsystem/                      # 核心实现
 │   ├── app/                        # FastAPI后端 (REST + SSE)
@@ -143,6 +145,14 @@ dataarc-sdg/
 │   │   ├── distill.py              # 蒸馏任务
 │   │   └── task_executor.py        # 统一任务执行器
 │   │
+│   ├── trainer/                    # 模型训练模块 (verl)
+│   │   ├── methods/                # 训练方法实现
+│   │   │   ├── sft.py              # SFT训练方法
+│   │   │   └── grpo.py             # GRPO训练方法
+│   │   ├── config.py               # 训练配置
+│   │   ├── data_preprocessing.py   # 训练数据预处理
+│   │   └── launcher.py             # 训练任务启动器
+│   │
 │   ├── translation/                # 多语言支持
 │   │   └── translator.py           # 翻译工具
 │   │
@@ -154,6 +164,8 @@ dataarc-sdg/
 │   ├── pipeline.py                 # 主SDG流程
 │   ├── prompts.py                  # LLM提示词
 │   └── utils.py                    # 工具函数
+│
+├── verl/                           # verl训练框架
 │
 ├── docs/                           # 文档
 │
