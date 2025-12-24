@@ -131,7 +131,7 @@ class Pipeline:
         buffer_patterns = [
             # Generation buffers
             "Local-Generation", "Local-Validation", "Local-Pattern",
-            "Distillation-Generation", "Distillation-Validation" "Distillation-Pattern",
+            "Distillation-Generation", "Distillation-Validation", "Distillation-Pattern",
             # Refinement buffers
             "rewrite-generation", "rewrite-validation"
         ]

@@ -87,13 +87,13 @@ class MajorityVotingProcessor(BasePostProcessor):
                 # Check if answer extraction returned None
                 if answers is None:
                     logger.warning(f"  Answer extraction failed - returned None")
-                    return None, 0
+                    return None
 
                 # Filter out None values from failed extractions
                 valid_answers = [ans for ans in answers if ans is not None]
                 if len(valid_answers) < 2:
                     logger.warning(f"  Not enough valid answers for voting: {len(valid_answers)} valid out of {len(responses)} responses")
-                    return None, 0
+                    return None
 
                 # Use valid_answers for voting
                 answers = valid_answers
@@ -106,7 +106,7 @@ class MajorityVotingProcessor(BasePostProcessor):
 
                 # Check if voting succeeded
                 if mode_value is None or mode_ids is None or selected_idx is None:
-                    return None, 0
+                    return None
 
                 # Get the selected output
                 selected_output = responses[selected_idx]

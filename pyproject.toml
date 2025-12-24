@@ -1,5 +1,5 @@
 [project]
-name = "DataArc SynData Toolkit"
+name = "DataArc-SynData-Toolkit"
 version = "0.1.0"
 description = "Synthetic Data Generation Platfrom by DataArc"
 readme = "README.md"
