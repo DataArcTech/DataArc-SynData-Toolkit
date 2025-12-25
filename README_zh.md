@@ -63,9 +63,9 @@ https://github.com/user-attachments/assets/4b4d5ae4-d274-4971-a3cb-e9f07e841374
 **DataArc SynData Toolkit**的设计旨在以模块化方式运行数据合成流程，允许用户自定义各模块的策略和方法实现。主要组件包括：
 
 - **数据合成**：通过本地合成、huggingface爬取、数据蒸馏等方法合成数据。
-  - 开发者可以继承[BaseTaskConfig](./sdgsystem/configs/sdg.py)和[BaseTaskExecutor](./sdgsystem/tasks/base.py)定制化合成数据的方法
+  - 开发者可以继承[BaseTaskConfig](./sdgsystem/configs/config.py)和[BaseTaskExecutor](./sdgsystem/tasks/base.py)定制化合成数据的方法
 - **数据筛选与改写**：对初步合成的数据，针对待训练模型进行筛选和改写。
-  - 开发者可以继承[BaseRewriteConfig](./sdgsystem/configs/sdg.py)和[BaseRewriter](./sdgsystem/generation/rewriter.py)定制化数据改写方法（或不改写）
+  - 开发者可以继承[BaseRewriteConfig](./sdgsystem/configs/config.py)和[BaseRewriter](./sdgsystem/generation/rewriter.py)定制化数据改写方法（或不改写）
 
 ![dataarc-sdg_pipeline](assets/dataarc-syndata-toolkit_pipeline.png)
 

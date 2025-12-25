@@ -60,9 +60,9 @@ A few lines of code deliver over 20% performance improvements.
 **DataArc SynData Toolkit** is designed to synthesize data in a modular pipeline, allowing users to customize the strategies and implementation methods of each step. The main components include:
 
 - **Synthetic Data Generation**: Generate data through methods such as local synthesis, Huggingface dataset retrieval, and model distillation.
-  - Developers can inherit [BaseTaskConfig](./sdgsystem/configs/sdg.py) and [BaseTaskExecutor](./sdgsystem/tasks/base.py) to customize the generation task.
+  - Developers can inherit [BaseTaskConfig](./sdgsystem/configs/config.py) and [BaseTaskExecutor](./sdgsystem/tasks/base.py) to customize the generation task.
 - **Data Filtering and Rewriting**: Filter and rewrite initially synthesized data according to the target model's requirements.
-  - Developers can inherit [BaseRewriteConfig](./sdgsystem/configs/sdg.py) and [BaseRewriter](./sdgsystem/generation/rewriter.py) to customize the rewrite method for synthetic data (or no rewriting).
+  - Developers can inherit [BaseRewriteConfig](./sdgsystem/configs/config.py) and [BaseRewriter](./sdgsystem/generation/rewriter.py) to customize the rewrite method for synthetic data (or no rewriting).
 
 ![dataarc-sdg_pipeline](assets/dataarc-syndata-toolkit_pipeline.png)
 
