@@ -4,6 +4,7 @@ from pathlib import Path
 import logging
 import re
 import os
+import json
 
 from ..configs.config import ParserConfig
 
@@ -162,6 +163,13 @@ class MinerUParser(BaseParser):
 
             pdf_info = middle_json["pdf_info"]
 
+            # Save pdf_info to JSON file for later use (e.g., image context extraction)
+            pdf_info_path = self.output_dir / file_name / self.parse_method / "pdf_info.json"
+            pdf_info_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(pdf_info_path, 'w', encoding='utf-8') as f:
+                json.dump(pdf_info, f, ensure_ascii=False, indent=2)
+            logger.info(f"Saved pdf_info to {pdf_info_path}")
+
             # Generate markdown content
             image_dir = str(os.path.basename(local_image_dir))
             md_content = pipeline_union_make(
@@ -216,37 +224,3 @@ class MinerUParser(BaseParser):
         text = re.sub(r' {2,}', ' ', text)
 
         return text.strip()
-
-    def save_as_markdown(self, results: List[Dict[str, Any]], output_path: str) -> str:
-        """
-        Save parsed results as markdown file.
-
-        Args:
-            results: Parsed results from parse_document()
-            output_path: Path to save markdown file
-
-        Returns:
-            Path to saved markdown file
-        """
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if not results:
-            logger.warning("No results to save")
-            return str(output_path)
-
-        # MinerU returns combined content for all pages in a single result (already cleaned)
-        content = results[0].get('content', '')
-
-        if not content:
-            logger.warning("Empty content in results")
-            return str(output_path)
-
-        # Save to file (content is already cleaned in parse_document)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-
-        logger.info(f"Saved markdown to {output_path}")
-        logger.info(f"Content size: {len(content)} chars")
-
-        return str(output_path)

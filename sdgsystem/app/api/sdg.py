@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/sdg", tags=["sdg"])
 # Fixed directories for uploaded files
 UPLOAD_DIR = "./dataset"
 DOCUMENTS_DIR = os.path.join(UPLOAD_DIR, "documents")
+IMAGES_DIR = os.path.join(UPLOAD_DIR, "images")
 DEMO_EXAMPLES_PATH = os.path.join(UPLOAD_DIR, "demo_examples.jsonl")
 BUFFER_DIR = "./buffer"
 
@@ -25,6 +26,7 @@ def _clear_upload_dir():
     if os.path.exists(UPLOAD_DIR):
         shutil.rmtree(UPLOAD_DIR)
     os.makedirs(DOCUMENTS_DIR, exist_ok=True)
+    os.makedirs(IMAGES_DIR, exist_ok=True)
 
 
 def _save_file(file: UploadFile, target_path: str) -> str:
@@ -37,15 +39,35 @@ def _save_file(file: UploadFile, target_path: str) -> str:
 
 
 def _inject_document_dir(config: dict, document_dir: str) -> dict:
-    """Inject document_dir into config for local task."""
+    """Inject document_dir into config for text.local or image.local task."""
     if "task" not in config:
         config["task"] = {}
-    if "local" not in config["task"]:
-        config["task"]["local"] = {}
-    if "parsing" not in config["task"]["local"]:
-        config["task"]["local"]["parsing"] = {}
 
-    config["task"]["local"]["parsing"]["document_dir"] = document_dir
+    # Handle text.local
+    if "text" in config["task"] and "local" in config["task"]["text"]:
+        if "parsing" not in config["task"]["text"]["local"]:
+            config["task"]["text"]["local"]["parsing"] = {}
+        config["task"]["text"]["local"]["parsing"]["document_dir"] = document_dir
+
+    # Handle image.local (PDF parsing for image extraction)
+    if "image" in config["task"] and "local" in config["task"]["image"]:
+        if "parsing" not in config["task"]["image"]["local"]:
+            config["task"]["image"]["local"]["parsing"] = {}
+        config["task"]["image"]["local"]["parsing"]["document_dir"] = document_dir
+
+    return config
+
+
+def _inject_image_dir(config: dict, image_dir: str) -> dict:
+    """Inject image_dir into config for image.local task."""
+    if "task" not in config:
+        config["task"] = {}
+    if "image" not in config["task"]:
+        config["task"]["image"] = {}
+    if "local" not in config["task"]["image"]:
+        config["task"]["image"]["local"] = {}
+
+    config["task"]["image"]["local"]["image_dir"] = image_dir
     return config
 
 
@@ -61,13 +83,15 @@ def _inject_demo_examples_path(config: dict, demo_examples_path: str) -> dict:
 async def create_job(
     config: str = Form(...),
     documents: Optional[List[UploadFile]] = File(default=None),
+    images: Optional[List[UploadFile]] = File(default=None),
     demo_examples: Optional[UploadFile] = File(default=None)
 ):
     """Create a new job with config and optional file uploads.
 
     Args:
         config: JSON string containing the job configuration
-        documents: Optional list of PDF files for local task parsing
+        documents: Optional list of PDF files for local task parsing (text.local or image.local)
+        images: Optional list of image files for image.local task
         demo_examples: Optional single JSONL file with demo examples
 
     Returns:
@@ -89,15 +113,22 @@ async def create_job(
         )
 
     # Handle file uploads
-    if documents or demo_examples:
+    if documents or images or demo_examples:
         _clear_upload_dir()
 
-        # Save PDF documents
+        # Save PDF documents (for text.local or image.local parsing)
         if documents:
             for doc in documents:
                 if doc.filename:
                     _save_file(doc, os.path.join(DOCUMENTS_DIR, doc.filename))
             config_dict = _inject_document_dir(config_dict, DOCUMENTS_DIR)
+
+        # Save image files (for image.local)
+        if images:
+            for img in images:
+                if img.filename:
+                    _save_file(img, os.path.join(IMAGES_DIR, img.filename))
+            config_dict = _inject_image_dir(config_dict, IMAGES_DIR)
 
         # Save demo examples
         if demo_examples:
@@ -105,8 +136,26 @@ async def create_job(
             config_dict = _inject_demo_examples_path(config_dict, DEMO_EXAMPLES_PATH)
 
     task_config = config_dict.get("task", {})
-    task_type = task_config.get("task_type", "local")
     task_name = task_config.get("name", "unnamed")
+
+    # Determine task_type from modality structure
+    # Supports: text.local, text.web, text.distill, image.local, image.web
+    task_type = "local"  # default
+    text_config = task_config.get("text", {})
+    image_config = task_config.get("image", {})
+
+    if text_config:
+        if text_config.get("local"):
+            task_type = "text.local"
+        elif text_config.get("web"):
+            task_type = "text.web"
+        elif text_config.get("distill"):
+            task_type = "text.distill"
+    elif image_config:
+        if image_config.get("local"):
+            task_type = "image.local"
+        elif image_config.get("web"):
+            task_type = "image.web"
 
     reporter = sdg_job_manager.create_job(task_type=task_type, task_name=task_name)
 

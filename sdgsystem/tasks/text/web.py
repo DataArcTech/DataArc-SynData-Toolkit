@@ -2,27 +2,44 @@ import logging
 from tqdm import tqdm
 from typing import List, Dict, Optional
 
-from ..configs.config import WebTaskConfig
-from ..models import ModelClient
-from ..dataset.dataset import Dataset
-from .base import BaseTaskExecutor
-from ..huggingface import HFCrawler
-from ..dataset.process import DataFilter, Formatter
+from ...configs.config import TextWebConfig
+from ...models import ModelClient
+from ...dataset.dataset import Dataset
+from ..base import BaseTaskExecutor
+from ..keyword_extractor import KeywordExtractor
+from ...huggingface import HFCrawler
+from ...dataset.process import DataFilter, Formatter
 
 logger = logging.getLogger(__name__)
 
 
 class WebTaskExecutor(BaseTaskExecutor):
     def __init__(self,
-        config: WebTaskConfig,
+        config: TextWebConfig,
         llm: ModelClient,
     ) -> None:
         super(WebTaskExecutor, self).__init__(config, llm)
 
-        self.config = config
+        self.config: TextWebConfig = config
+        self.keyword_extractor = KeywordExtractor(llm)
         self.crawler = HFCrawler(self.config.huggingface_token)
         self.filter = DataFilter(llm)
         self.formatter = Formatter(llm)
+
+    def extract_keywords(self, task_definition: str) -> List[str]:
+        """Extract domain keywords using LLM based on task instruction."""
+        domain = self.config.domain
+
+        keywords = self.keyword_extractor.extract_keywords(
+            task_instruction=task_definition,
+            for_huggingface=True
+        )
+
+        # if domain is non-empty and not already in keywords, add it
+        if domain and domain not in keywords:
+            keywords.append(domain)
+
+        return keywords
 
     def search_datasets(self) -> List[Dict]:
         """
@@ -30,32 +47,26 @@ class WebTaskExecutor(BaseTaskExecutor):
         Returns a list of dataset metadata (without rows).
         """
         task_keywords = self.extract_keywords(task_definition=self.config.task_instruction)
-        logger.info(f"Extracted {len(task_keywords)} keywords: {task_keywords}")
+        logger.info(f"Searching with {len(task_keywords)} keywords: {task_keywords}")
 
         datasets = []
-        for task_keyword in tqdm(task_keywords, desc="Searching keywords", unit="keyword"):
+        for task_keyword in tqdm(task_keywords, desc="Searching datasets", unit="keyword"):
             task_datasets = self.crawler.search_datasets(query=task_keyword, limit=self.config.dataset_limit)
             if not task_datasets:
                 continue
 
-            for task_dataset in tqdm(task_datasets, desc=f"Loading {task_keyword}", leave=False, unit="dataset"):
+            for task_dataset in task_datasets:
                 dataset_id = task_dataset.id
-                logger.info(f"Loading dataset: {dataset_id}")
-                dataset_info = self.crawler.get_info(dataset_id)
                 dataset_splits = self.crawler.get_splits(dataset_id)
-                logger.info(f"Available splits for {dataset_id}: {dataset_splits}")
+                logger.info(f"Found dataset: {dataset_id}, splits: {dataset_splits}")
 
                 datasets.append({
                     "keyword": task_keyword,
                     "id": dataset_id,
-                    "info": dataset_info,
                     "splits": dataset_splits
                 })
 
-        # Log all found datasets
-        logger.info(f"Found {len(datasets)} datasets from search:")
-        for dataset in datasets:
-            logger.info(f"  - {dataset['id']} (keyword: {dataset['keyword']})")
+        logger.info(f"Found {len(datasets)} datasets")
 
         return datasets
 
@@ -99,8 +110,7 @@ class WebTaskExecutor(BaseTaskExecutor):
             f"input: {input_text}\noutput: {output_text}"
         )
         overall_score = sum(int(score) for score in sample_scores.values())
-
-        logger.info(f"Dataset {dataset_id} probe score: {overall_score} (threshold: {self.config.dataset_score_threshold})")
+        logger.info(f"Dataset {dataset_id} probe score: {overall_score}")
 
         # Store field mapping and score for later use
         dataset["fields"] = fields
@@ -113,10 +123,8 @@ class WebTaskExecutor(BaseTaskExecutor):
         Phase 1: Probe all datasets and filter by score threshold.
         Returns list of valid datasets sorted by score (highest first).
         """
-        logger.info(f"Probing {len(datasets)} datasets...")
-
         scored_datasets = []
-        for dataset in tqdm(datasets, desc="Probing datasets", unit="dataset"):
+        for dataset in tqdm(datasets, desc="Validating datasets", unit="dataset"):
             result = self.probe_dataset(dataset)
             if result is not None:
                 scored_datasets.append(result)
@@ -131,15 +139,8 @@ class WebTaskExecutor(BaseTaskExecutor):
         # Return both lists - calculate_distribution will decide how many to use
         valid_datasets = above_threshold
         fallback_datasets = below_threshold
-            
-        logger.info(f"{len(valid_datasets)} valid datasets after probing")
-        for d in valid_datasets:
-            logger.info(f"  - {d['id']}: score={d['overall_score']}")
 
-        if fallback_datasets:
-            logger.info(f"{len(fallback_datasets)} fallback datasets available:")
-            for d in fallback_datasets:
-                logger.info(f"  - {d['id']}: score={d['overall_score']} (below threshold)")
+        logger.info(f"Validated: {len(valid_datasets)} valid, {len(fallback_datasets)} fallback datasets")
 
         return valid_datasets, fallback_datasets
 
@@ -167,9 +168,7 @@ class WebTaskExecutor(BaseTaskExecutor):
             # Higher scored datasets (earlier in sorted list) get remainder
             dataset["samples_to_extract"] = base_count + (1 if i < remainder else 0)
 
-        # Estimate total samples we can get (this is approximate, actual count will be known after extraction)
-        estimated_total = sum(d["samples_to_extract"] for d in all_datasets)
-        logger.info(f"Initial distribution across {len(all_datasets)} datasets (estimated total: {estimated_total} samples)")
+        logger.info(f"Distribution: {len(all_datasets)} datasets, target {num_samples} samples")
 
         return all_datasets
 
@@ -207,13 +206,12 @@ class WebTaskExecutor(BaseTaskExecutor):
             )
 
             if formatted.get("input") is None or formatted.get("output") is None:
-                logger.info(f"Skipping row: format conversion failed")
+                logger.warning(f"Skipping row: format conversion failed")
                 continue
 
             formatted_samples.append({
                 "keyword": dataset["keyword"],
                 "id": dataset_id,
-                "info": dataset["info"],
                 "original_input": input_text,
                 "original_output": output_text,
                 "input": formatted["input"],
@@ -240,10 +238,12 @@ class WebTaskExecutor(BaseTaskExecutor):
         datasets = self.search_datasets()
 
         if not datasets:
-            logger.warning("No datasets found for the given keywords.")
-            if reporter:
-                reporter.complete_step({"message": "No datasets found", "datasets_found": 0})
-            return Dataset()
+            error_msg = (
+                "No datasets found for the given keywords. "
+                "Please adjust your task_instruction or domain to match available HuggingFace datasets."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         if reporter:
             reporter.complete_step({
@@ -264,17 +264,12 @@ class WebTaskExecutor(BaseTaskExecutor):
         valid_datasets, fallback_datasets = self.validate_datasets(datasets)
 
         if not valid_datasets and not fallback_datasets:
-            logger.warning("No valid datasets found after probing.")
-            logger.warning("Consider optimizing your task_instruction or lowering dataset_score_threshold.")
-            if reporter:
-                reporter.complete_step({
-                    "message": "No valid datasets found",
-                    "valid_count": 0,
-                    "fallback_count": 0,
-                    "valid_datasets": [],
-                    "fallback_datasets": []
-                })
-            return Dataset()
+            error_msg = (
+                "No valid datasets found after probing. "
+                "All datasets failed validation (missing input/output fields or empty values)."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         # Calculate distribution
         datasets_to_use = self.calculate_distribution(valid_datasets, fallback_datasets, self.config.num_samples)
@@ -302,7 +297,7 @@ class WebTaskExecutor(BaseTaskExecutor):
         for idx, dataset in enumerate(tqdm(datasets_to_use, desc="Extracting samples", unit="dataset")):
             samples = self.extract_and_format(dataset)
             all_samples.extend(samples)
-            logger.info(f"Extracted {len(samples)} formatted samples from {dataset['id']}")
+            logger.info(f"Extracted {len(samples)} samples from {dataset['id']}")
 
             if reporter:
                 reporter.update_step(
@@ -334,7 +329,7 @@ class WebTaskExecutor(BaseTaskExecutor):
 
                 samples = self.extract_and_format(dataset)
                 all_samples.extend(samples)
-                logger.info(f"Extracted {len(samples)} samples from fallback dataset {dataset['id']}")
+                logger.info(f"Extracted {len(samples)} samples from fallback {dataset['id']}")
 
                 if reporter:
                     reporter.update_step(
@@ -343,7 +338,7 @@ class WebTaskExecutor(BaseTaskExecutor):
                     )
 
             if fallback_used:
-                logger.info(f"Used {len(fallback_used)} fallback datasets. Total samples: {len(all_samples)}")
+                logger.info(f"Used {len(fallback_used)} fallback datasets")
 
         if reporter:
             reporter.complete_step({
@@ -355,9 +350,6 @@ class WebTaskExecutor(BaseTaskExecutor):
         final_dataset = Dataset()
         final_dataset.add_samples(samples=all_samples)
 
-        # Report final datasets to use
-        logger.info(f"Using {len(datasets_to_use)} datasets for extraction:")
-        for d in datasets_to_use:
-            logger.info(f"  Dataset {d['id']}: will extract {d['samples_to_extract']} samples")
+        logger.info(f"Web task complete: {len(all_samples)} samples from {len(datasets_to_use)} datasets")
 
         return final_dataset

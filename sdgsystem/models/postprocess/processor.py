@@ -53,12 +53,23 @@ class PostProcessor:
         
         return processor
     
-    def generate(self, 
-        prompts: Union[str, List[str]], 
-        n: int = 1, 
-        answer_extractor: AnswerExtractor = None, 
-        processor_args: ProcessorArgs = ProcessorArgs(), 
-        usage_counter: ModelUsageCounter = None, 
+    def generate(self,
+        prompts: Union[str, List[str]],
+        n: int = 1,
+        answer_extractor: AnswerExtractor = None,
+        processor_args: ProcessorArgs = ProcessorArgs(),
+        usage_counter: ModelUsageCounter = None,
         **kwargs
     ) -> Union[str, List[str], List[List[str]]]:
         return self.processor.generate(prompts, n, answer_extractor, processor_args, usage_counter, **kwargs)
+
+    def generate_with_images(self,
+        prompts: Union[str, List[str]],
+        images: Union[str, List[str]],
+        n: int = 1,
+        answer_extractor: AnswerExtractor = None,
+        processor_args: ProcessorArgs = ProcessorArgs(),
+        usage_counter: ModelUsageCounter = None,
+        **kwargs
+    ) -> Union[str, List[str], List[List[str]]]:
+        return self.processor.generate_with_images(prompts, images, n, answer_extractor, processor_args, usage_counter, **kwargs)

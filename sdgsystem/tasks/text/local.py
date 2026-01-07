@@ -1,28 +1,53 @@
 import random
 import logging
 from pathlib import Path
+from typing import List, Dict
 
-from ..configs.config import LocalTaskConfig
-from ..models import ModelClient, ModelUsageCounter
-from ..dataset.dataset import Dataset
-from .base import BaseTaskExecutor
-from ..documents.parse import MinerUParser
-from ..documents.chunk import RecursiveChunker
-from ..documents.export import export_chunks_to_jsonl
-from ..documents.load import DocumentLoader
-from ..documents.retrieve import BM25Retriever
-from ..generation.generator import DataGenerator
+from ...configs.config import TextLocalConfig
+from ...configs.constants import DEFAULT_KEYWORDS_EXTRACT_EXAMPLES
+from ...models import ModelClient, ModelUsageCounter
+from ...dataset.dataset import Dataset
+from ..base import BaseTaskExecutor
+from ..keyword_extractor import KeywordExtractor
+from ...documents.parse import MinerUParser
+from ...documents.chunk import RecursiveChunker
+from ...documents.export import export_chunks_to_jsonl
+from ...documents.load import DocumentLoader
+from ...documents.retrieve import BM25Retriever
+from ...generation.generator import TextDataGenerator
 
 logger = logging.getLogger(__name__)
 
 
 class LocalTaskExecutor(BaseTaskExecutor):
     def __init__(self,
-        config: LocalTaskConfig,
+        config: TextLocalConfig,
         llm: ModelClient
     ) -> None:
         super(LocalTaskExecutor, self).__init__(config, llm)
-        self.config: LocalTaskConfig
+        self.config: TextLocalConfig
+        self.keyword_extractor = KeywordExtractor(llm)
+
+    def extract_keywords(
+        self,
+        task_instruction: str,
+        demo_examples: List[Dict[str, str]] = DEFAULT_KEYWORDS_EXTRACT_EXAMPLES,
+        usage_counter: ModelUsageCounter = None
+    ) -> List[str]:
+        """Extract domain keywords using LLM based on task instruction and demo examples."""
+        domain = self.config.domain
+
+        keywords = self.keyword_extractor.extract_keywords(
+            task_instruction=task_instruction,
+            demo_examples=demo_examples,
+            usage_counter=usage_counter
+        )
+
+        # if domain is non-empty and not already in keywords, add it
+        if domain and domain not in keywords:
+            keywords.append(domain)
+
+        return keywords
 
     def execute(self, parallel_executor=None, reporter=None) -> Dataset:
         """Execute local task: document processing → retrieval → generation → dataset."""
@@ -91,7 +116,7 @@ class LocalTaskExecutor(BaseTaskExecutor):
         if reporter:
             reporter.start_step("keyword_extraction", "Extracting Keywords", "Analyzing instructions...")
 
-        usage_counter_keywords = ModelUsageCounter(total=1, name="Local-Keywords")
+        usage_counter_keywords = ModelUsageCounter(total=1, name="Text-Local-Keywords")
         keywords = self.extract_keywords(
             self.config.task_instruction,
             demo_examples,
@@ -116,9 +141,9 @@ class LocalTaskExecutor(BaseTaskExecutor):
             reporter.complete_step({"passages_count": len(reference_passages)})
 
         # Generating Samples
-        usage_counter_generation = ModelUsageCounter(total=1, name="Local")
+        usage_counter_generation = ModelUsageCounter(total=1, name="Text-Local")
 
-        data_generator = DataGenerator(self.llm, self.config.generation)
+        data_generator = TextDataGenerator(self.llm, self.config.generation)
 
         dataset = data_generator.generate(
             task_definition=self.config.task_instruction,

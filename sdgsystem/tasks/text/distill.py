@@ -1,21 +1,22 @@
 import logging
 
-from ..configs.config import DistillTaskConfig
-from ..models import ModelClient
-from ..dataset.dataset import Dataset
-from .base import BaseTaskExecutor
-from ..distillation.sdg_distill import SDGDistillation
-from ..documents.load import DocumentLoader
+from ...configs.config import TextDistillConfig
+from ...models import ModelClient
+from ...dataset.dataset import Dataset
+from ..base import BaseTaskExecutor
+from ...distillation.sdg_distill import SDGDistillation
+from ...documents.load import DocumentLoader
 
 logger = logging.getLogger(__name__)
 
 
 class DistillTaskExecutor(BaseTaskExecutor):
     def __init__(self,
-        config: DistillTaskConfig,
+        config: TextDistillConfig,
         llm: ModelClient
     ) -> None:
         super(DistillTaskExecutor, self).__init__(config, llm)
+        self.config: TextDistillConfig
 
     def execute(self, parallel_executor=None, reporter=None) -> Dataset:
         """Execute distillation task: pure synthetic data generation without retrieval."""

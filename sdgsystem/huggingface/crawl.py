@@ -1,5 +1,5 @@
 import requests
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import HfApi
 from typing import Optional, List, Dict, Any
 
 
@@ -19,14 +19,15 @@ class HFCrawler:
     def search_datasets(self, query: str, limit: int) -> List[Any]:
         """
         Search for datasets on Hugging Face Hub by query keyword.
-        Results are filtered to JSON datasets and sorted by downloads.
+        Results are filtered to JSON datasets and sorted by downloads (descending).
         """
         try:
             datasets = list(
                 self.api.list_datasets(
                     search=query,
                     filter="format:json",
-                    sort="downloads"
+                    sort="downloads",
+                    direction=-1  # descending order (most downloads first)
                 )
             )[:limit]
             return datasets
@@ -34,21 +35,25 @@ class HFCrawler:
             print(f"Error searching datasets with query '{query}': {e}")
             return []
 
-    def get_readme(self, repo_id: str, repo_type: str = "dataset") -> str:
+    def search_image_datasets(self, query: str, limit: int) -> List[Any]:
         """
-        Download and return the README.md content of a dataset repository.
+        Search for image-text datasets on HuggingFace Hub by query keyword.
+        Results are filtered to datasets with both image and text modalities
+        and sorted by downloads (descending).
         """
         try:
-            readme_path = hf_hub_download(
-                repo_id=repo_id,
-                repo_type=repo_type,
-                filename="README.md"
-            )
-            with open(readme_path, encoding="utf-8") as f:
-                return f.read()
+            datasets = list(
+                self.api.list_datasets(
+                    search=query,
+                    filter=["modality:image", "modality:text"],
+                    sort="downloads",
+                    direction=-1  # descending order (most downloads first)
+                )
+            )[:limit]
+            return datasets
         except Exception as e:
-            print(f"Error fetching README for {repo_id}: {e}")
-            return ""
+            print(f"Error searching image datasets with query '{query}': {e}")
+            return []
 
     # -------------------------------
     # Dataset Server Endpoints
@@ -91,21 +96,4 @@ class HFCrawler:
         except Exception as e:
             print(f"Error fetching first rows for dataset {dataset}: {e}")
             return []
-
-    def get_info(self, dataset: str, config: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Retrieve dataset information and metadata.
-        """
-        try:
-            url = f"{self.BASE_URL}/info"
-            params = {"dataset": dataset}
-            if config:
-                params["config"] = config
-
-            resp = requests.get(url, params=params)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            print(f"Error fetching info for dataset {dataset}: {e}")
-            return {}
 

@@ -405,15 +405,14 @@ export default function ConfigurationPage() {
         return
       }
 
-      // 3. Collect files separately
-      const documents: File[] = []
-      const demoExamples: File[] = []
+      // 3. Collect all files from form
+      const allFiles: File[] = []
 
       // From uploadDocuments field
       if (formValues.uploadDocuments && Array.isArray(formValues.uploadDocuments)) {
         formValues.uploadDocuments.forEach((uploadFile: any) => {
           if (uploadFile.originFileObj) {
-            documents.push(uploadFile.originFileObj)
+            allFiles.push(uploadFile.originFileObj)
           }
         })
       }
@@ -422,7 +421,7 @@ export default function ConfigurationPage() {
       if (formValues.demoExamples && Array.isArray(formValues.demoExamples)) {
         formValues.demoExamples.forEach((uploadFile: any) => {
           if (uploadFile.originFileObj) {
-            demoExamples.push(uploadFile.originFileObj)
+            allFiles.push(uploadFile.originFileObj)
           }
         })
       }
@@ -438,8 +437,7 @@ export default function ConfigurationPage() {
       // Create job with config and files
       const response = await taskApi.createJob({
         config,
-        documents: documents.length > 0 ? documents : undefined,
-        demo_examples: demoExamples.length > 0 ? demoExamples : undefined,
+        files: allFiles.length > 0 ? allFiles : undefined,
       })
       const jobId = response.job_id
 
@@ -457,20 +455,8 @@ export default function ConfigurationPage() {
       // Navigate to generate page immediately
       navigate('/generate')
     } catch (err) {
-      // Handle form validation errors
-      if (err && typeof err === 'object' && 'errorFields' in err) {
-        // Ant Design form validation error
-        const errorFields = (err as any).errorFields
-        if (errorFields && errorFields.length > 0) {
-          const firstError = errorFields[0]
-          const errorMessage = firstError.errors?.[0] || 'Please complete required fields'
-          message.error(errorMessage)
-        }
-      } else {
-        // Other errors
-        const error = err instanceof Error ? err : new Error(String(err))
-        message.error(`Failed to start task: ${error.message}`)
-      }
+      const error = err instanceof Error ? err : new Error(String(err))
+      message.error(`Failed to start task: ${error.message}`)
       setIsGenerating(false)
     }
   }
@@ -536,7 +522,7 @@ export default function ConfigurationPage() {
                     color: token.colorTextTertiary,
                   }}
                 >
-                  Upload a JSONL file to serve as a generation example.
+                  Upload JSONL file(s) to serve as a generation example.
                 </div>
               }
               getValueFromEvent={e => {
@@ -546,7 +532,7 @@ export default function ConfigurationPage() {
                 return e?.fileList
               }}
             >
-              <CustomUpload accept=".jsonl" columns={1} maxCount={1} />
+              <CustomUpload multiple accept=".jsonl" columns={2} />
             </Form.Item>
           </>
         )
@@ -593,7 +579,7 @@ export default function ConfigurationPage() {
                   color: token.colorTextTertiary,
                 }}
               >
-                Upload a JSONL file to serve as a generation example.
+                Upload JSONL file(s) to serve as a generation example.
               </div>
             }
             getValueFromEvent={e => {
@@ -603,7 +589,7 @@ export default function ConfigurationPage() {
               return e?.fileList
             }}
           >
-            <CustomUpload accept=".jsonl" columns={1} maxCount={1} />
+            <CustomUpload multiple accept=".jsonl" columns={2} />
           </Form.Item>
         )
       default:
@@ -715,7 +701,7 @@ export default function ConfigurationPage() {
                   label="Task Instruction"
                   rules={[{ required: true, message: 'Please enter Task Instruction' }]}
                 >
-                  <TextArea placeholder="Define the type, structure, and requirements of the dataset to be generated, including the task objective, input–output format, and quality constraints." rows={4} size="large" />
+                  <TextArea placeholder="What kind of data to generate?" rows={4} size="large" />
                 </Form.Item>
 
                 {/* Number of Examples and Language in one row */}
@@ -814,15 +800,15 @@ export default function ConfigurationPage() {
                       onValuesChange={handleValuesChange}
                     >
                       <Form.Item name="domain" label="Domain">
-                        <Input placeholder="Enter Domain Keywords" size="large" />
+                        <Input placeholder="Enter domain" size="large" />
                       </Form.Item>
 
                       <Form.Item name="inputInstruction" label="Input Instruction">
-                        <TextArea placeholder="Describe the format of the input field in target dataset" rows={4} size="large" />
+                        <TextArea placeholder="Enter input instruction" rows={4} size="large" />
                       </Form.Item>
 
                       <Form.Item name="outputInstruction" label="Output Instruction">
-                        <TextArea placeholder="Describe the format of the output field in target dataset" rows={4} size="large" />
+                        <TextArea placeholder="Enter output instruction" rows={4} size="large" />
                       </Form.Item>
                     </Form>
                   ),

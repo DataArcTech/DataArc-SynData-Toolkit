@@ -1,8 +1,3 @@
-"""
-Translator module for translating generated datasets to target languages.
-Provides a base class for translation and concrete implementations for different models.
-"""
-
 import torch
 from abc import ABC, abstractmethod
 from typing import Dict, Any

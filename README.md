@@ -50,6 +50,10 @@ A few lines of code deliver over 20% performance improvements.
 - **Frontend–Backend Separation**: **DataArc SynData Toolkit** now adopts a fully frontend–backend separated architecture, featuring a **FastAPI backend** (REST APIs + SSE streaming for real-time progress) and a standalone **React** frontend for improved visualization, usability, and scalability.
 - **Post-Training Support via verl**: Introduced an integrated post-training module powered by **verl**, enabling end-to-end model training workflows including **SFT** and **GRPO** on synthesized data.
 - **Multilingual Expansion**: Added support for generating **Arabic** datasets, leveraging an Arabic translation model to produce fully localized synthetic data outputs.
+[26/01/xx] 🖼️ **Image Modality Support**:
+- **Image Local Task**: Generate VQA (Visual Question Answering) data from local images or PDF-extracted figures using VLMs. Supports automatic context extraction from surrounding document text.
+- **Image Web Task**: Automatically search and retrieve image-text datasets from HuggingFace Hub, with intelligent field mapping and quality scoring based on task instructions.
+- **Multi-source Image Input**: Support for user-uploaded images, PDF figure extraction via MinerU, and HuggingFace dataset streaming.
 
 > [!TIP]
 >
@@ -187,7 +191,7 @@ If you have any doubt about regrading our Web UI, check our [Web UI document](/s
 
 ## :date: Schedule for the Next Release
 
-- **Multi-modal Dataset Synthesizing**: Support synthesize image-included dataset.
+- **Synthetic Data Evaluating**: Support generated dataset evaluation in real-time.
 
 ## :handshake: Contributing
 

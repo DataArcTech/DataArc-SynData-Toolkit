@@ -9,57 +9,84 @@ task:
   name: gsm8k
   domain: mathematics        # Keywords of the domain of target dataset
   demo_examples_path: /path/to/your/demo_examples.jsonl  # path for demo examples .jsonl file (Optional)
-  task_type: local           # Choose data generation task type here: local / web / distill
 
   # Task instruction used for data generation, define the type, structure, and requirements of the dataset to be generated
-  task_instruction: |
+  task_instruction: >-
     Generate a grade school math word problem that requires multi-step reasoning.
     The problem should involve basic arithmetic operations and have a clear numerical answer.
-  # Input instruction - appended to prompt to guide the format of input field (Optional)
-  input_instruction: |
+  # Input instruction - appended to prompt to guide the format of input field
+  input_instruction: >-
     The input should be a math word problem that requires multi-step reasoning.
-  # Output instruction - appended to prompt to guide the format of output field (Optional)
-  output_instruction: |
+  # Output instruction - appended to prompt to guide the format of output field
+  output_instruction: >-
     The output should contain reasoning process step by step.
 
   num_samples: 10      # Number of samples to generate
-  batch_size: 5        # Batch processing size across pipeline to accelerate data generation
+  batch_size: 5        # Batch processing size across pipeline
 
-  # Local task: generate data from provided file
-  local:
-    # Parsing Configuration
-    parsing:
-      document_dir: ./dataset/documents  # Path to documents directory
-      method: mineru                     # Default to mineru parser
+  # Text modality configuration
+  # Output format: {"input": "question", "output": "answer"}
+  text:
+    # Local task: generate from local documents
+    local:
+      # Parsing Configuration
+      parsing:
+        document_dir: /path/to/your/document_dir   # Path to documents directory
+        method: mineru                             # default to mineru parser
 
-    # Retrieval Configuration
-    retrieval:
-      passages_dir: ./dataset/passages   # Path to document passages after parsing and chunking
-      method: bm25                       # Default to bm25 retriever
-      top_k: 1000                        # Selected top k passage retrieved
+      # Retrieval Configuration
+      retrieval:
+        passages_dir: ./dataset/passages   # path to document passages after parsing and chunking
+        method: bm25                       # default to bm25 retriever
+        top_k: 1000                        # selected top k passage retrieved
 
-    # Generation Configuration
-    generation:
-      temperature: 1.0                   # Temperature for LLM in initial data generation
+      # Generation Configuration
+      generation:
+        temperature: 1.0       # Temperature for LLM in initial data generation
 
-  # Web task: crawl from HuggingFace
-  web:
-    huggingface_token: "hf_"        # HF token, this parameter can be set in env (Optional)
-    dataset_score_threshold: 30     # Minimum overall score (sum of 5 criteria) for a dataset to be valid (Range: 0~50)
+    # Web task: crawl from HuggingFace
+    # web:
+    #   huggingface_token: "hf_"        # Optional. This parameter can be set by 'export HUGGINGFACE_TOKEN="YOUR TOKEN"'
+    #   dataset_limit: 5                # Number of datasets to crawl per keyword (default: 5)
+    #   dataset_score_threshold: 30     # minimum overall score (sum of 5 criteria) for a dataset to be valid (Range: 0~50)
 
-  # Distill task: pure instruction-based generation
-  distill:
-    temperature: 1.0                # Temperature for LLM distillation
+    # Distill task: pure instruction-based generation
+    # distill:
+    #   temperature: 1.0         # Temperature for LLM distillation
 
+  # Image modality configuration (comment out 'text' above to use this)
+  # Output format: {"input": "question", "output": "answer", "image": "path/to/image.png"}
+  # image:
+  #   # Local task: generate QA data from local images
+  #   local:
+  #     # Image sources (at least one required, can combine both)
+  #     image_dir: /path/to/your/images        # Directory containing images (jpg, png, etc.)
+  #
+  #     # PDF parsing for image extraction (optional, uses MinerU)
+  #     parsing:
+  #       document_dir: /path/to/your/pdfs     # Directory containing PDF documents
+  #       method: mineru                       # Parser method (default: mineru)
+  #
+  #     # Generation Configuration
+  #     generation:
+  #       temperature: 1.0       # Temperature for VLM in data generation
+  #
+  #   # Web task: crawl VQA datasets from HuggingFace
+  #   web:
+  #     huggingface_token: "hf_"        # Optional. Can be set via 'export HUGGINGFACE_TOKEN="YOUR TOKEN"'
+  #     dataset_limit: 5                # Number of datasets to crawl per keyword (default: 5)
+  #     dataset_score_threshold: 30     # Minimum score for a dataset to be valid (Range: 0~50)
 
-# Base model for evaluation and inference load from vllm
+# Base model for evaluation and inference (vLLM for text, VLM for image modality)
+# For image modality, use a VLM model like Qwen/Qwen2-VL-7B-Instruct
 base_model:
-  path: Qwen/Qwen2.5-7B             # Base model path
+  path: Qwen/Qwen2.5-7B   # Text: Qwen/Qwen2.5-7B | Image: Qwen/Qwen3-VL-7B-Instruct
 
-# LLM used throughout the pipeline (Create .env file to specified base url and api key)
+# LLM/VLM used throughout the pipeline (Create .env file to specify base url and api key)
+# For image modality, use a VLM like gpt-4o or claude-3-5-sonnet
 llm:
   provider: openai
-  model: gpt-4o
+  model: gpt-4o-mini      # Text: gpt-4o-mini | Image: gpt-4o (VLM required)
 
 # Answer extraction configuration (HOW to mark final answer of the question, refer to GSM8K dataset)
 answer_extraction:
@@ -69,19 +96,17 @@ answer_extraction:
 # Postprocess for LLMs' responses
 postprocess:
   methods: 
-  - majority_voting    # Default to majority voting
+  - majority_voting    # default to majority voting
       
   # Majority voting for quality control of LLM's responses
+  # Uncomment ONE method below: exact_match / semantic_clustering / llm_judge
   majority_voting:
     n: 8    # Number of voting
-
-    # Majority answer determine method: exact_match / semantic_clustering / llm_judge
-    method: exact_match
 
     # Exact match settings (mostly used for numerical answer)
     exact_match:
       numeric_tolerance: 1e-3        # Set to 0 or null for strict string matching
-    
+
     # Semantic similarity settings (better tolerance of answer output)
     # semantic_clustering:
     #   model_path: BAAI/bge-m3      # Semantic model path
@@ -89,7 +114,7 @@ postprocess:
 
     # LLM judge settings (best choice but cost)
     # llm_judge:
-    #     temperature: 0.3
+    #   temperature: 0.3
 
 # Evaluation Configuration
 evaluation:
@@ -105,10 +130,8 @@ evaluation:
     n: 8
 
   # Answer comparison configuration (Used for both evaluation scoring and majority voting)
+  # Uncomment ONE method below: exact_match / semantic / llm_judge
   answer_comparison:
-    # Method: exact_match / semantic / llm_judge
-    method: semantic
-
     # Exact match settings (mostly used for numerical answer)
     # exact_match:
     #   numeric_tolerance: 1e-3     # Set to 0 or null for strict string matching
@@ -123,9 +146,8 @@ evaluation:
     #   temperature: 0.3
 
 # Rewrite Configuration
+# Uncomment ONE method below: difficulty_adjust
 rewrite:
-  method: difficulty_adjust    # Adjust question based on difficulty
-
   difficulty_adjust:
     easier_temperature: 0.9
     harder_temperature: 1.1

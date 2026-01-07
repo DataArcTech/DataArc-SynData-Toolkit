@@ -5,7 +5,7 @@ import { useTaskStore } from '@/store/use-task-store'
 
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'deepseek', label: 'Deepseek' },
   { value: 'qwen', label: 'Qwen' },
   { value: 'ollama', label: 'Ollama' },
 ]

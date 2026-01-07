@@ -5,7 +5,7 @@ This document describes all dependencies required to run **DataArc SynData Toolk
 ## 1. Hardware Requirements
 
 This project requires GPU environment. We recommend following settings:
-  - Linux (Ubuntu 22.04+)
+  - Linux (Ubuntu 22.04+) or Windows 10/11
   - CUDA 12.8+
   - GPU memory ≥ 24 GB (for 7B–13B models)
 
@@ -46,10 +46,10 @@ This project requires GPU environment. We recommend following settings:
 
 If you encounter problem building dependencies with ``uv sync``, please follow this installation guide.
 
-Firstly, specified the python version that you want and delete the cuda dependent package in [pyproject.toml](./pyproject.toml)
+Firstly, specified the python version that you want and delete the cuda dependent package in [pyproject.toml](../pyproject.toml)
 
 ```shell
-requires-python = "==3.11.13"  # specified python version here
+requires-python = "==3.11.13"  ## specified python version here
 dependencies = [
     # Core SDG dependencies
     "datasets>=4.4.1",
@@ -90,11 +90,11 @@ dependencies = [
 
 Before installing PyTorch or vLLM, confirm your CUDA verison, run command ``nvidia-smi``.
 
-Change the cuda version specified in [pyproject.toml](./pyproject.toml) to your cuda version.
+Change the cuda version specified in [pyproject.toml](../pyproject.toml) to your cuda version.
 
-```shell
+``` shell
 [[tool.uv.index]]
-name = "pytorch-cu128"  # e.g. if you have cuda 12.6, change cu128 -> cu126, all of them below as well
+name = "pytorch-cu128"  ## e.g. if you have cuda 12.6, change cu128 -> cu126, all of them below as well
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
@@ -108,20 +108,21 @@ torchaudio = { index = "pytorch-cu128" }
 
 Install the correct pytorch version that match your cuda version. See details in [Pytorch Previous Versions](https://pytorch.org/get-started/previous-versions/).
 
-```shell
+``` shell
 # for example, if you are using cuda12.6, you can install torch 2.7.0 using this uv command
 uv add torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0
 ```
 
 > [!Note]
-> If you want to experience GRPO training, the minimum requirement of CUDA>=12.8.
+> If you want to experience the model training module, you should have CUDA>=12.8
 
 #### Step 3 — Install CUDA Dpendent Dependencies (Must Be After PyTorch)
 
-vLLM depends on your existing PyTorch installation and CUDA runtime. Use this command to install the correct version of vLLM.
+vLLM and flash-attention depends on your existing PyTorch installation and CUDA runtime. Install the correct version of vLLM and flash-attention with following command.
 
 ```shell
-uv add vllm flash-attn
+uv add flash-attn --no-build-isolation
+uv add vllm
 ```
 
 #### Step 4 - Install General Dependencies (CUDA-Independent)

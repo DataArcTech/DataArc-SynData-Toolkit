@@ -47,16 +47,9 @@ export default function TrainingExport({
   onStatusChange,
 }: TrainingExportProps) {
   const token = useAntdTheme()
-  const storeExperimentName = useTrainingStore(
-    state => state.trainingConfig.trainer.experiment_name,
-  )
-  const storeMethod = useTrainingStore(state => state.trainingConfig.method)
-  const storeModelPath = useTrainingStore(state => state.trainingConfig.model.path)
-
-  // Task info state - restore from localStorage if available
-  const [experimentName, setExperimentName] = useState<string>('')
-  const [method, setMethod] = useState<string>('')
-  const [modelPath, setModelPath] = useState<string>('')
+  const experimentName = useTrainingStore(state => state.trainingConfig.trainer.experiment_name)
+  const method = useTrainingStore(state => state.trainingConfig.method)
+  const modelPath = useTrainingStore(state => state.trainingConfig.model.path)
 
   const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'cancelled' | 'error'>(
     'idle',
@@ -64,7 +57,6 @@ export default function TrainingExport({
   const [_progress, setProgress] = useState(0)
   const [logs, setLogs] = useState<string[]>([])
   const [showCancelModal, setShowCancelModal] = useState(false)
-  const [cancelLoading, setCancelLoading] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
   const [exportLoading, setExportLoading] = useState(false)
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
@@ -73,53 +65,8 @@ export default function TrainingExport({
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true) // 仅在用户停留底部时自动滚动
   const sseControllerRef = useRef<AbortController | null>(null)
   const hasConnectedRef = useRef(false) // 防止重复连接
-  const isUnmountingRef = useRef(false) // 标记组件是否正在卸载
-  const isPageUnloadingRef = useRef(false) // 标记页面是否正在卸载（浏览器级别）
 
-  // Helper function to update localStorage with current task state
-  // Only updates the specific fields passed in, without overwriting existing fields
-  const updateLocalStorage = useCallback(
-    (updates: Partial<{ status: typeof status; wandbUrl: string | null }>) => {
-      if (!jobId) return
-
-      const storedJobState = localStorage.getItem('training_job_state')
-      if (storedJobState) {
-        try {
-          const jobState = JSON.parse(storedJobState)
-          const updatedState = {
-            ...jobState,
-            // Only spread updates - don't overwrite with potentially stale React state
-            ...updates,
-          }
-          localStorage.setItem('training_job_state', JSON.stringify(updatedState))
-        } catch (error) {
-          // Silently handle localStorage errors
-        }
-      }
-    },
-    [jobId],
-  )
-
-  // Listen for page unload events (refresh, close tab, navigate away)
-  // This must be set BEFORE React cleanup to catch browser-level unload events
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      isPageUnloadingRef.current = true
-    }
-
-    const handleUnload = () => {
-      isPageUnloadingRef.current = true
-    }
-
-    // Use both events for maximum coverage
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    window.addEventListener('unload', handleUnload)
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      window.removeEventListener('unload', handleUnload)
-    }
-  }, [])
+  // Stats
   const [_stats, setStats] = useState({
     lr: '--',
     loss: '--',
@@ -129,7 +76,6 @@ export default function TrainingExport({
   const handleCancelTask = async () => {
     if (!jobId) return
 
-    setCancelLoading(true)
     try {
       // Call cancel API
       const res = await fetch(`/api/train/${jobId}/cancel`, {
@@ -145,9 +91,8 @@ export default function TrainingExport({
       setShowCancelModal(false)
       setProgress(0)
 
-      // Update localStorage status instead of removing it
-      // This allows users to see cancelled task info after refresh
-      updateLocalStorage({ status: 'cancelled' })
+      // Clear localStorage when task is cancelled
+      localStorage.removeItem('training_job_state')
 
       // Notify parent component to clear jobId
       onTaskComplete?.()
@@ -156,8 +101,6 @@ export default function TrainingExport({
     } catch (error) {
       const err = error as Error
       message.error(err.message || 'Failed to cancel task')
-    } finally {
-      setCancelLoading(false)
     }
   }
 
@@ -223,43 +166,6 @@ export default function TrainingExport({
     }
   }, [])
 
-  // Restore task info from localStorage on mount or when jobId changes
-  useEffect(() => {
-    const storedJobState = localStorage.getItem('training_job_state')
-    if (storedJobState) {
-      try {
-        const jobState = JSON.parse(storedJobState)
-        // Only restore if the jobId matches (or if no jobId in current props, like on initial load)
-        if (!jobId || jobState.jobId === jobId) {
-          setExperimentName(jobState.experimentName || storeExperimentName || 'Untitled Task')
-          setMethod(jobState.method || storeMethod || 'SFT')
-          setModelPath(jobState.modelPath || storeModelPath || '')
-          setWandbUrl(jobState.wandbUrl || null)
-          if (jobState.status) {
-            setStatus(jobState.status)
-          }
-        }
-      } catch (error) {
-        // Fallback to store values
-        setExperimentName(storeExperimentName || 'Untitled Task')
-        setMethod(storeMethod || 'SFT')
-        setModelPath(storeModelPath || '')
-      }
-    } else {
-      // Use store values if no localStorage data
-      setExperimentName(storeExperimentName || 'Untitled Task')
-      setMethod(storeMethod || 'SFT')
-      setModelPath(storeModelPath || '')
-    }
-  }, [jobId, storeExperimentName, storeMethod, storeModelPath])
-
-  // Sync status and wandbUrl to localStorage when they change
-  useEffect(() => {
-    if (jobId && (status !== 'idle' || wandbUrl)) {
-      updateLocalStorage({ status, wandbUrl })
-    }
-  }, [status, wandbUrl, jobId, updateLocalStorage])
-
   // Notify parent component when status changes
   useEffect(() => {
     onStatusChange?.(status)
@@ -315,19 +221,12 @@ export default function TrainingExport({
     // 防止重复连接：如果没有 jobId 或已经连接，则不执行
     if (!jobId || hasConnectedRef.current) return
 
-    // 标记为已连接，并重置卸载标记
+    // 标记为已连接
     hasConnectedRef.current = true
-    isUnmountingRef.current = false
 
     sseControllerRef.current?.abort()
     setLogs([])
-
-    // Only set to 'running' if status is 'idle' (new task) or already 'running' (reconnection)
-    // Don't override 'error'/'cancelled' status - let backend response determine the real status
-    if (status === 'idle') {
-      setStatus('running')
-    }
-
+    setStatus('running')
     // Reset stats
     setStats({
       lr: '--',
@@ -348,46 +247,10 @@ export default function TrainingExport({
       },
       async onopen(response) {
         const contentType = response.headers.get('content-type')
-
-        // Handle JSON response (e.g., when job is already completed)
-        if (response.ok && contentType?.includes('application/json')) {
-          try {
-            const data = await response.json()
-            if (data.status === 'completed') {
-              setStatus('completed')
-              setProgress(100)
-              setLogs(prev => [...prev, `Training task already completed: ${data.message || ''}`])
-              message.info(data.message || 'Training task already completed')
-              controller.abort()
-              return
-            } else if (data.status === 'error' || data.status === 'failed') {
-              setStatus('error')
-              setLogs(prev => [...prev, `Training task failed: ${data.message || ''}`])
-              message.error(data.message || 'Training task failed')
-
-              // Update localStorage and notify parent
-              updateLocalStorage({ status: 'error' })
-              onTaskComplete?.()
-
-              controller.abort()
-              return
-            }
-          } catch (error) {
-            // Failed to parse JSON response
-          }
-          // For other JSON responses, throw error to stop SSE processing
-          throw new Error('Unexpected JSON response')
-        }
-
-        // SSE stream established successfully - task is running
         if (
           response.ok &&
           (contentType === EventStreamContentType || contentType?.includes('text/event-stream'))
         ) {
-          // Update status to 'running' when SSE connection is established
-          // This handles reconnection scenarios where localStorage had 'error' status
-          // but the task is actually still running
-          setStatus('running')
           return
         }
         if (response.status >= 400 && response.status < 500) {
@@ -429,9 +292,8 @@ export default function TrainingExport({
         if (msg.event === 'error') {
           setStatus('error')
 
-          // Update localStorage status instead of removing it
-          // This allows users to see error details after refresh
-          updateLocalStorage({ status: 'error' })
+          // Clear localStorage when training encounters an error
+          localStorage.removeItem('training_job_state')
 
           // Notify parent component to clear jobId (can start new task)
           onTaskComplete?.()
@@ -441,35 +303,23 @@ export default function TrainingExport({
         }
       },
       onclose() {
-        // Don't update state/localStorage if component is unmounting (e.g., page refresh)
-        if (controller.signal.aborted || isUnmountingRef.current || isPageUnloadingRef.current) {
-          return
-        }
+        if (controller.signal.aborted) return
 
         // If server closes connection unexpectedly (not via 'complete' or 'error' events),
         // we should stop retrying to avoid duplicate connections and 400 errors
         if (status !== 'completed') {
+          console.warn('SSE connection closed unexpectedly, stopping retries')
           controller.abort()
           setStatus('error')
-
-          // Update localStorage and notify parent
-          updateLocalStorage({ status: 'error' })
-          onTaskComplete?.()
-
           message.warning('Connection closed unexpectedly. Please check your training task status.')
         }
       },
       onerror(err) {
-        // Don't update state/localStorage if component is unmounting (e.g., page refresh)
-        if (controller.signal.aborted || isUnmountingRef.current || isPageUnloadingRef.current) {
-          return
-        }
-
+        if (controller.signal.aborted) return
         setStatus('error')
 
-        // Update localStorage status instead of removing it
-        // This allows users to see error details after refresh
-        updateLocalStorage({ status: 'error' })
+        // Clear localStorage when training encounters an error
+        localStorage.removeItem('training_job_state')
 
         // Notify parent component to clear jobId
         onTaskComplete?.()
@@ -500,9 +350,6 @@ export default function TrainingExport({
     })
 
     return () => {
-      // Mark component as unmounting BEFORE aborting
-      // This prevents onerror/onclose from updating localStorage during page refresh
-      isUnmountingRef.current = true
       controller.abort()
       hasConnectedRef.current = false // 组件卸载时重置连接标记
     }
@@ -656,19 +503,11 @@ export default function TrainingExport({
       {/* Cancel Confirmation Modal */}
       <Modal
         open={showCancelModal}
-        onCancel={() => {
-          // Prevent closing modal while cancelling
-          if (!cancelLoading) {
-            setShowCancelModal(false)
-          }
-        }}
+        onCancel={() => setShowCancelModal(false)}
         footer={null}
         width={400}
         centered
-        closeIcon={!cancelLoading}
-        closable={!cancelLoading}
-        maskClosable={!cancelLoading}
-        keyboard={!cancelLoading}
+        closeIcon={false}
         className="overflow-hidden rounded-xl"
       >
         <div className="flex flex-col items-center pt-4 text-center">
@@ -683,22 +522,10 @@ export default function TrainingExport({
             Are you sure you want to cancel the current task? All progress will be lost.
           </Text>
           <div className="flex w-full gap-3">
-            <Button
-              danger
-              type="primary"
-              block
-              size="large"
-              onClick={handleCancelTask}
-              loading={cancelLoading}
-            >
+            <Button danger type="primary" block size="large" onClick={handleCancelTask}>
               Cancel Task
             </Button>
-            <Button
-              block
-              size="large"
-              onClick={() => setShowCancelModal(false)}
-              disabled={cancelLoading}
-            >
+            <Button block size="large" onClick={() => setShowCancelModal(false)}>
               Close
             </Button>
           </div>

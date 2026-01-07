@@ -1,12 +1,4 @@
-"""
-Evaluator module for evaluating synthetic data with the working model.
-
-This module provides evaluation logic for assessing the quality of synthetic
-data by running inference with the base model and comparing predictions against
-ground truth answers.
-"""
-
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import logging
 from tqdm import tqdm
 
@@ -57,13 +49,21 @@ class Evaluator:
             llm=llm.get_model() if llm is not None else None
         )
 
-    def evaluate(self, dataset: Dataset, mode: str = "inference") -> Dict:
+    def evaluate(
+        self,
+        dataset: Dataset,
+        mode: str = "inference",
+        modality: str = "text",
+        output_dir: Optional[str] = None
+    ) -> Dict:
         """
-        Evaluate, filter, and split samples from dataset
+        Evaluate, filter, and split samples from dataset.
 
         Args:
-            dataset: Dataset, samples with 'input' and 'output' keys
+            dataset: Dataset, samples with 'input' and 'output' keys (and 'image' key for image modality)
             mode: "inference" for binary evaluation (n=1) or "scoring" for pass@n
+            modality: "text" for text-only evaluation, "image" for VLM evaluation
+            output_dir: Output directory for resolving relative image paths (required for image modality)
 
         Returns:
             Evaluation results of dataset, e.g.:
@@ -76,13 +76,23 @@ class Evaluator:
 
         usage_counter = ModelUsageCounter(total=len(dataset), name="Evaluator")
 
-        evaluated_samples = self.evaluate_samples(
-            dataset.samples,
-            usage_counter,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            n=config.n
-        )
+        if modality == "image":
+            evaluated_samples = self.evaluate_samples_with_images(
+                dataset.samples,
+                usage_counter,
+                output_dir=output_dir,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                n=config.n
+            )
+        else:
+            evaluated_samples = self.evaluate_samples(
+                dataset.samples,
+                usage_counter,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                n=config.n
+            )
         scores = [s for s, _ in evaluated_samples]
 
         # Log scoring summary
@@ -91,7 +101,7 @@ class Evaluator:
             solved = sum(1 for s in scores if s == 1.0)
             learnable = sum(1 for s in scores if 0 < s < 1.0)
             unsolved = sum(1 for s in scores if s == 0.0)
-            logger.info(f"Evaluation Summary ({mode}): Total={total}, "
+            logger.info(f"Evaluation Summary ({mode}, {modality}): Total={total}, "
                        f"Solved={solved} ({solved/total*100:.1f}%), "
                        f"Learnable={learnable} ({learnable/total*100:.1f}%), "
                        f"Unsolved={unsolved} ({unsolved/total*100:.1f}%)")
@@ -132,6 +142,94 @@ class Evaluator:
 
         predictions = self.base_model.generate(
             prompts,
+            n=n,
+            usage_counter=usage_counter,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        # Track time after inference
+        if usage_counter:
+            usage_counter.estimate_usage(n=len(samples))
+
+        # Evaluate each sample
+        results = []
+        for sample, responses in tqdm(zip(samples, predictions), total=len(samples), desc="Comparing answers"):
+            ground_truth = sample['output']
+
+            # Ensure responses is a list
+            if not isinstance(responses, list):
+                responses = [responses]
+
+            # Evaluate each of the n responses
+            eval_results = [
+                self._evaluate_single(sample['input'], ground_truth, pred)
+                for pred in responses
+            ]
+
+            # Calculate score as average
+            score = sum(eval_results) / len(eval_results)
+
+            # Store correct predictions
+            correct_preds = [pred for pred, res in zip(responses, eval_results) if res]
+
+            # Create sample with score info
+            sample_with_score = {
+                **sample,
+                'score': score,
+                'correct_predictions': correct_preds,
+                'all_predictions': responses
+            }
+
+            results.append((score, sample_with_score))
+
+        return results
+
+    def evaluate_samples_with_images(
+        self,
+        samples: List[Dict[str, str]],
+        usage_counter: ModelUsageCounter = None,
+        output_dir: Optional[str] = None,
+        temperature: float = 0.0,
+        max_tokens: int = 1500,
+        n: int = 1
+    ) -> List[Tuple[float, Dict[str, str]]]:
+        """
+        Evaluate samples with images by running VLM inference and comparing with ground truth.
+
+        Args:
+            samples: List of samples with 'input', 'output', and 'image' keys
+            usage_counter: Counter for time tracking
+            output_dir: Output directory for resolving relative image paths
+            temperature: Sampling temperature (0.0 for deterministic)
+            max_tokens: Maximum tokens to generate
+            n: Number of responses to generate per sample
+
+        Returns:
+            List of (score, sample) tuples where:
+            - score: float (0.0 to 1.0) = correct_count / n
+            - sample: dict with added 'score', 'correct_predictions', 'all_predictions'
+        """
+        import os
+
+        # Build all prompts and collect image paths
+        prompts = [self._build_prompt(sample['input']) for sample in samples]
+
+        # Resolve image paths (relative to output_dir if provided)
+        image_paths = []
+        for sample in samples:
+            image_path = sample.get('image', '')
+            if output_dir and not os.path.isabs(image_path):
+                image_path = os.path.join(output_dir, image_path)
+            image_paths.append(image_path)
+
+        # Run VLM inference
+        desc = "Evaluating samples (VLM)" if n == 1 else f"Scoring samples (VLM, n={n})"
+        logger.info(f"{desc}: {len(samples)} samples")
+
+        predictions = self.base_model.generate_with_images(
+            prompts=prompts,
+            images=image_paths,
             n=n,
             usage_counter=usage_counter,
             temperature=temperature,

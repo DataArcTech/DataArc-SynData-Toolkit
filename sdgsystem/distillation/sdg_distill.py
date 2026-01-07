@@ -1,17 +1,10 @@
-"""
-SDG Synthetic data generator for distillation pipeline.
-
-This module provides a simple LLM-based generator that creates synthetic training
-data based on task instructions and optional demonstration examples.
-"""
-
 import os
 import logging
 from typing import List, Dict, Optional
 from tqdm import tqdm
 
 from ..models import ModelClient, ModelUsageCounter
-from ..configs.config import DistillTaskConfig
+from ..configs.config import TextDistillConfig
 from ..prompts import SDG_DISTILL_BATCH_GENERATION_PROMPT, PATTERN_GENERATION_PROMPT
 from ..buffer import TaskBuffer
 from .base import BaseDistillation
@@ -27,7 +20,7 @@ class SDGDistillation(BaseDistillation):
     def __init__(
         self,
         model: ModelClient,
-        config: DistillTaskConfig,
+        config: TextDistillConfig,
         buffer_dir: str = "buffer"
     ):
         """
@@ -35,7 +28,7 @@ class SDGDistillation(BaseDistillation):
 
         Args:
             model: ModelClient instance
-            config: DistillTaskConfig instance containing task configuration
+            config: TextDistillConfig instance containing task configuration
             buffer_dir: Directory for saving buffer/checkpoint files
         """
         super().__init__(model, config, buffer_dir)

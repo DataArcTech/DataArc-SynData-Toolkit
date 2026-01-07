@@ -1,7 +1,3 @@
-"""
-Training launcher - runs training as a subprocess with logging.
-"""
-
 import os
 import subprocess
 import logging

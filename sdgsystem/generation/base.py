@@ -1,5 +1,6 @@
+import os
 import json
-from typing import List, Dict, Union, Tuple
+from typing import List, Dict, Union, Tuple, Optional
 from tqdm import tqdm
 from ..models import ModelClient, ProcessorArgs, ModelUsageCounter
 from ..parallel import ParallelExecutor
@@ -30,6 +31,8 @@ class BaseGenerator:
         parallel_executor: ParallelExecutor = None,
         buffer: TaskBuffer = None,
         reporter=None,
+        modality: str = "text",
+        output_dir: Optional[str] = None,
     ) -> List[Dict]:
         """
         Parse raw LLM response strings and validate with majority voting.
@@ -42,9 +45,12 @@ class BaseGenerator:
         Args:
             response_strings: List of raw LLM response strings (potentially JSON)
             output_instruction: Output format instruction (from config: evaluation.output_instruction)
-            answer_config: AnswerExtractionConfig for extracting answers from responses
-            voting_config: MajorityVotingConfig for voting configuration
-            n_votes: Number of votes per sample (default: 16, following Data_Synthesis_RL)
+            usage_counter: Usage counter for tracking token and time usage
+            parallel_executor: Optional parallel executor for batch processing
+            buffer: Optional task buffer for caching progress
+            reporter: Optional progress reporter
+            modality: "text" for text-only validation, "image" for VLM validation
+            output_dir: Output directory for resolving relative image paths (required for image modality)
 
         Returns:
             List of parsed and validated samples with voting applied
@@ -105,7 +111,9 @@ class BaseGenerator:
             usage_counter=usage_counter,
             parallel_executor=parallel_executor,
             buffer=buffer,
-            reporter=reporter
+            reporter=reporter,
+            modality=modality,
+            output_dir=output_dir
         )
 
         return validated_samples
@@ -145,6 +153,14 @@ class BaseGenerator:
             usage_counter=usage_counter
         )
 
+        # Handle None response - voting failed due to insufficient valid answers
+        if batch_outputs is None:
+            raise RuntimeError(
+                "Majority voting failed: not enough valid answers could be extracted from model responses. "
+                "Please optimize your task instructions to help the model generate responses in the expected format, "
+                "or increase 'n_voting' in postprocess.majority_voting config to get more candidate answers."
+            )
+
         # Process batch results
         for sample, selected_output in zip(batch_samples, batch_outputs):
             if selected_output:
@@ -161,7 +177,77 @@ class BaseGenerator:
 
         return validated_samples, failed_count
 
-        
+    def _validate_batch_with_images(self,
+        batch_samples: List[Dict],
+        output_instruction: str,
+        usage_counter: ModelUsageCounter = None,
+        output_dir: Optional[str] = None,
+    ) -> Tuple[List[Dict], int]:
+        """
+        Validate and improve samples with images using VLM and majority voting.
+
+        Args:
+            batch_samples: a batch of samples (each containing 'image' key)
+            output_instruction: Output format instruction
+            usage_counter: instance to count and estimate the token and time usage
+            output_dir: Output directory for resolving relative image paths
+
+        Returns:
+            List of validated samples with improved outputs (keeps original on voting failure)
+        """
+        validated_samples: List[Dict] = []
+        failed_count: int = 0
+        batch_prompts = []
+        batch_images = []
+
+        for sample in batch_samples:
+            input_content = sample["input"]
+            prompt = str(input_content) + "\n" + output_instruction
+            batch_prompts.append(prompt)
+
+            # Resolve image path
+            image_path = sample.get("image", "")
+            if output_dir and image_path and not os.path.isabs(image_path):
+                image_path = os.path.join(output_dir, image_path)
+            batch_images.append(image_path)
+
+        # Generate batch responses with VLM and majority voting
+        batch_outputs = self.model.generate_with_images(
+            prompts=batch_prompts,
+            images=batch_images,
+            n=1,
+            processor_args=ProcessorArgs.from_dict({
+                "majority_voting": {"samples": batch_samples}
+            }),
+            usage_counter=usage_counter
+        )
+
+        # Handle None response - voting failed due to insufficient valid answers
+        if batch_outputs is None:
+            raise RuntimeError(
+                "Majority voting failed: not enough valid answers could be extracted from VLM responses. "
+                "Please optimize your instructions to help the model generate responses in the expected format, "
+                "or increase 'n_voting' in postprocess.majority_voting config to get more candidate answers."
+            )
+
+        # Process batch results
+        for sample, selected_output in zip(batch_samples, batch_outputs):
+            if selected_output:
+                validated_samples.append({
+                    "input": sample["input"],
+                    "output": selected_output,
+                    "image": sample.get("image", "")
+                })
+            else:
+                failed_count += 1
+                validated_samples.append({
+                    "input": sample["input"],
+                    "output": sample["output"],
+                    "image": sample.get("image", "")
+                })
+
+        return validated_samples, failed_count
+
     def _validate_samples(self,
         samples: List[Dict],
         output_instruction: str,
@@ -169,6 +255,8 @@ class BaseGenerator:
         parallel_executor: ParallelExecutor = None,
         buffer: TaskBuffer = None,
         reporter=None,
+        modality: str = "text",
+        output_dir: Optional[str] = None,
     ) -> List[Dict]:
         """
         Validate and improve samples using majority voting (always enabled).
@@ -178,6 +266,11 @@ class BaseGenerator:
             samples: List of sample dicts to validate
             output_instruction: Output format instruction (from config: evaluation.output_instruction)
             usage_counter: instance to count and estimate the token and time usage
+            parallel_executor: Optional parallel executor for batch processing
+            buffer: Optional task buffer for caching progress
+            reporter: Optional progress reporter
+            modality: "text" for text-only validation, "image" for VLM validation
+            output_dir: Output directory for resolving relative image paths (required for image modality)
 
         Returns:
             List of validated samples with improved outputs (keeps original on voting failure)
@@ -194,10 +287,18 @@ class BaseGenerator:
             batch_end = min(batch_start + batch_size, len(samples))
             batches.append(samples[batch_start:batch_end])
 
-        # reset buffer and usage_counter total to track batches (not samples)
+        # Resize buffer and usage_counter to match actual batch count (based on parsed_samples)
         buffer.resize_total(total=len(batches))
         if usage_counter:
-            usage_counter.total = len(batches)
+            usage_counter.resize_total(total=len(batches))
+
+        # Select validation function based on modality
+        if modality == "image":
+            validate_func = self._validate_batch_with_images
+            validate_kwargs = {"output_dir": output_dir}
+        else:
+            validate_func = self._validate_batch
+            validate_kwargs = {}
 
         if parallel_executor and parallel_executor.n_workers > 1:
             # set up progress callback for parallel processing
@@ -220,18 +321,19 @@ class BaseGenerator:
             # parallel processing
             result_batches: List[Tuple[List[Dict], int]] = parallel_executor.execute(
                 iterable_inputs=batches,
-                process_function=self._validate_batch,
+                process_function=validate_func,
                 output_instruction=output_instruction,
                 usage_counter=usage_counter,
                 n=1,  # track per-batch completion to match buffer
-                buffer=buffer
+                buffer=buffer,
+                **validate_kwargs
             )
 
             validated_batches: List[List[Dict]] = []
             for batch_validated_samples, batch_failed_count in result_batches:
                 validated_batches.append(batch_validated_samples)
                 failed_count += batch_failed_count
-                
+
         else:
             # sequential processing
             validated_batches: List[List[Dict]] = buffer.load(usage_counter)
@@ -242,11 +344,12 @@ class BaseGenerator:
                         validated_count += len(batch_samples)
                         continue
 
-                    # Build prompts for this batch
-                    batch_validated_samples, batch_failed_count = self._validate_batch(
+                    # Validate this batch
+                    batch_validated_samples, batch_failed_count = validate_func(
                         batch_samples=batch_samples,
                         output_instruction=output_instruction,
-                        usage_counter=usage_counter
+                        usage_counter=usage_counter,
+                        **validate_kwargs
                     )
 
                     validated_batches.append(batch_validated_samples)

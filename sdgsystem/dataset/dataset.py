@@ -1,4 +1,3 @@
-import json
 import os
 import logging
 from typing import List, Dict, Tuple
@@ -16,27 +15,6 @@ class Dataset:
         """Initialize an empty dataset."""
         self.samples: List[Dict] = []
         self.failed_samples = []
-
-    @classmethod
-    def from_jsonl(cls, file_path: str) -> "Dataset":
-        """Create a Dataset instance from a JSONL file.
-
-        Args:
-            file_path: Path to the JSONL file containing the dataset.
-
-        Returns:
-            A new Dataset instance populated with the data from the file.
-        """
-        instance = cls()
-        with open(file_path) as fr:
-            for line in fr:
-                sample = json.loads(line)
-                if cls.validate_sample(sample):
-                    instance.samples.append(sample)
-                else:
-                    instance.failed_samples.append(sample)
-
-        return instance
 
     @classmethod
     def from_list(cls, sample_list: List[Dict]) -> "Dataset":
@@ -115,27 +93,9 @@ class Dataset:
         else:
             raise Exception(f"Export format of {export_format} is not supported.")
 
-    def __bool__(self) -> bool:
-        return len(self.samples) > 0
-
     def __len__(self) -> int:
-        """Get the number of samples in the dataset.
-
-        Returns:
-            int: The number of samples in the dataset.
-        """
+        """Get the number of samples in the dataset."""
         return len(self.samples)
-
-    def __getitem__(self, idx: int) -> Dict:
-        """Get a sample from the dataset by index.
-
-        Args:
-            idx: Index of the sample to retrieve.
-
-        Returns:
-            dict: The sample at the specified index.
-        """
-        return self.samples[idx]
 
     def extend(self, other: "Dataset"):
         """Extend self from other Dataset"""

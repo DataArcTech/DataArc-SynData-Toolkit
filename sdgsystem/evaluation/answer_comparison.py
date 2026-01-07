@@ -1,11 +1,3 @@
-"""
-Answer comparison module for evaluation.
-
-Provides three methods for comparing predicted answers against ground truth:
-1. Exact Match: Direct string equality or numeric tolerance
-2. Semantic: Embedding-based semantic similarity (BGE)
-3. LLM Judge: LLM-based semantic equivalence evaluation
-"""
 import time
 from abc import ABC, abstractmethod
 from typing import Optional

@@ -1,6 +1,3 @@
-"""
-Parallel processing module, which encapsulates the runtime logic for parallel processing of iterables, along with time and token statistics.
-"""
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed

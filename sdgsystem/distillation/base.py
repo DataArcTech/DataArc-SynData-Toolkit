@@ -1,10 +1,3 @@
-"""
-Base synthetic data generator for distillation pipeline.
-
-This module provides a simple LLM-based generator that creates synthetic training
-data based on task instructions and optional demonstration examples.
-"""
-
 import json
 import logging
 from abc import abstractmethod
@@ -12,7 +5,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 
 from ..models import ModelClient
-from ..configs.config import DistillTaskConfig
+from ..configs.config import TextDistillConfig
 from ..generation.base import BaseGenerator
 
 logger = logging.getLogger(__name__)
@@ -36,7 +29,7 @@ class BaseDistillation(BaseGenerator):
     def __init__(
         self,
         model: ModelClient,
-        config: DistillTaskConfig,
+        config: TextDistillConfig,
         buffer_dir: str = "buffer"
     ):
         """
@@ -44,7 +37,7 @@ class BaseDistillation(BaseGenerator):
 
         Args:
             model: ModelClient instance
-            config: DistillTaskConfig instance containing task configuration
+            config: TextDistillConfig instance containing task configuration
             buffer_dir: Directory for saving buffer/checkpoint files
         """
         super().__init__(model, config, buffer_dir)

@@ -1,9 +1,3 @@
-"""
-GRPO (Group Relative Policy Optimization) method implementation.
-
-Builds the command to launch verl's main_ppo with GRPO algorithm.
-"""
-
 import logging
 from typing import Optional
 

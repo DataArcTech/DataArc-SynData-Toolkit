@@ -16,7 +16,8 @@ class BaseConfig(BaseModel):
                 else:
                     self.__dict__[f] = config[f]
 
-# Configuration for Task
+
+# ============ Base Task Configuration ============
 class BaseTaskConfig(BaseConfig):
     """Base class of task configuration"""
     name: str = Field(..., description="Name of task")
@@ -28,21 +29,18 @@ class BaseTaskConfig(BaseConfig):
     domain: str = Field(default=None, description="Domain of task")
     demo_examples_path: Optional[str] = Field(default=None, description="Path of demo examples for synthetic data.")
 
-# Configuration for Local Task
+
+# ============ Common Configurations ============
+
 class ParserConfig(BaseConfig):
-    """Configuration for parsing documents"""
+    """Configuration for parsing documents (used by text and image modalities)"""
     method: str = Field(default=DEFAULT_PARSING_METHOD, description="parsing method")
     document_dir: str = Field(default=None, description="Directory containing PDF documents to parse")
     device: str = Field(default="cuda:0", description="Device to use for parsing (cuda or cpu)")
 
-class RetrievalConfig(BaseConfig):
-    """Configuration for retrieval"""
-    passages_dir: str = Field(..., description="Directions to document corpora")
-    method: str = Field(default=DEFAULT_RETRIEVAL_METHOD, description="retrieval method")
-    top_k: int = Field(default=DEFAULT_RETRIEVAL_TOP_K, description="retrieval top_k")
 
 class GenerationConfig(BaseConfig):
-    """Configuration for data generation"""
+    """Configuration for data generation (used by text and image modalities)"""
     input_instruction: Optional[str] = Field(default="", description="input instruction (inherited from task config)")
     output_instruction: Optional[str] = Field(default="", description="output instruction (inherited from task config)")
     num_samples: int = Field(default=None, gt=0, description="number of samples (inherited from task config)")
@@ -53,14 +51,24 @@ class GenerationConfig(BaseConfig):
         description="llm temperature of data generation"
     )
 
-class LocalTaskConfig(BaseTaskConfig):
-    """Task configuration of generating data from local documents"""
+
+# ============ Text Source Configurations ============
+
+class RetrievalConfig(BaseConfig):
+    """Configuration for text retrieval"""
+    passages_dir: str = Field(..., description="Directions to document corpora")
+    method: str = Field(default=DEFAULT_RETRIEVAL_METHOD, description="retrieval method")
+    top_k: int = Field(default=DEFAULT_RETRIEVAL_TOP_K, description="retrieval top_k")
+
+
+class TextLocalConfig(BaseTaskConfig):
+    """Configuration for text.local - local document source"""
     retrieval: RetrievalConfig = Field(..., description="retrieval configuration")
     parsing: ParserConfig = Field(..., description="parsing configuration")
     generation: GenerationConfig = Field(..., description="generation config")
 
     @classmethod
-    def from_dict(cls, config: Dict) -> "LocalTaskConfig":
+    def from_dict(cls, config: Dict) -> "TextLocalConfig":
         try:
             # Inject task-level config into generation config
             generation_config_dict: Dict = config.get("generation", {})
@@ -75,31 +83,29 @@ class LocalTaskConfig(BaseTaskConfig):
             config["generation"] = generation_config_dict
             instance = cls(**config)
         except Exception as e:
-            raise Exception(f"Error occured when parsing configuration of local task: {str(e)}")
+            raise Exception(f"Error occurred when parsing configuration of text.local: {str(e)}")
 
         return instance
 
 
-# Configuration for web task
-class WebTaskConfig(BaseTaskConfig):
-    """Task Configuration of crawling from huggingface"""
+class TextWebConfig(BaseTaskConfig):
+    """Configuration for text.web - HuggingFace source"""
     huggingface_token: str = Field(default=os.environ.get("HUGGINGFACE_TOKEN", None), description="huggingface token")
-    dataset_limit: int = Field(default=1, gt=0, description="number of datasets to crawl per keyword")
+    dataset_limit: int = Field(default=DEFAULT_WEB_DATASET_LIMIT, gt=0, description="number of datasets to crawl per keyword")
     dataset_score_threshold: int = Field(default=30, ge=0, description="minimum overall score (sum of 5 criteria) for a dataset to be valid")
 
     @classmethod
-    def from_dict(cls, config: Dict) -> "WebTaskConfig":
+    def from_dict(cls, config: Dict) -> "TextWebConfig":
         try:
             instance = cls(**config)
         except Exception as e:
-            raise Exception(f"Error occured when parsing configuration of web task: {str(e)}")
+            raise Exception(f"Error occurred when parsing configuration of text.web: {str(e)}")
 
         return instance
 
 
-# Configuration for distill task
-class DistillTaskConfig(BaseTaskConfig):
-    """Task Configuration of model distill"""
+class TextDistillConfig(BaseTaskConfig):
+    """Configuration for text.distill - distillation source"""
     temperature: float = Field(
         default=DEFAULT_TEMPERATURE,
         gt=0.,
@@ -107,25 +113,172 @@ class DistillTaskConfig(BaseTaskConfig):
     )
 
     @classmethod
-    def from_dict(cls, config: Dict) -> "DistillTaskConfig":
+    def from_dict(cls, config: Dict) -> "TextDistillConfig":
         try:
             instance = cls(**config)
         except Exception as e:
-            raise Exception(f"Error occured when parsing configuration of distill task: {str(e)}")
+            raise Exception(f"Error occurred when parsing configuration of text.distill: {str(e)}")
 
         return instance
 
 
+# ============ Image Source Configurations ============
+
+class ImageLocalConfig(BaseTaskConfig):
+    """Configuration for image.local - local image source
+
+    Image sources:
+    - image_dir: Directory containing user-uploaded images
+    - parsing: PDF parsing config (reuses ParserConfig) - extracts images from PDFs via MinerU
+
+    At least one source must be provided. If both are provided, images are combined.
+    """
+    image_dir: Optional[str] = Field(default=None, description="Directory containing user-uploaded images")
+    parsing: Optional[ParserConfig] = Field(default=None, description="PDF parsing config for image extraction")
+    generation: GenerationConfig = Field(..., description="Generation config")
+    output_dir: str = Field(default=None, description="Output directory for images (injected from global config)")
+
+    @classmethod
+    def from_dict(cls, config: Dict) -> "ImageLocalConfig":
+        try:
+            # Inject task-level config into generation config
+            generation_config_dict: Dict = config.get("generation", {})
+            if config.get("input_instruction"):
+                generation_config_dict["input_instruction"] = config["input_instruction"]
+            if config.get("output_instruction"):
+                generation_config_dict["output_instruction"] = config["output_instruction"]
+            if config.get("num_samples"):
+                generation_config_dict["num_samples"] = config["num_samples"]
+            if config.get("batch_size"):
+                generation_config_dict["batch_size"] = config["batch_size"]
+            config["generation"] = generation_config_dict
+            instance = cls(**config)
+        except Exception as e:
+            raise Exception(f"Error occurred when parsing configuration of image.local: {str(e)}")
+
+        return instance
+
+
+class ImageWebConfig(BaseTaskConfig):
+    """Configuration for image.web - HuggingFace image dataset source
+
+    Searches HuggingFace for image datasets, probes them for quality,
+    and downloads images with their associated QA pairs.
+    """
+    huggingface_token: str = Field(default=os.environ.get("HUGGINGFACE_TOKEN", None), description="huggingface token")
+    dataset_limit: int = Field(default=1, gt=0, description="number of datasets to crawl per keyword")
+    dataset_score_threshold: int = Field(default=30, ge=0, description="minimum overall score (sum of 5 criteria) for a dataset to be valid")
+    output_dir: str = Field(default=None, description="Output directory for images (injected from global config)")
+
+    @classmethod
+    def from_dict(cls, config: Dict) -> "ImageWebConfig":
+        try:
+            instance = cls(**config)
+        except Exception as e:
+            raise Exception(f"Error occurred when parsing configuration of image.web: {str(e)}")
+
+        return instance
+
+
+# ============ Image Modality Configuration ============
+
+class ImageModalityConfig(BaseConfig):
+    """Configuration for image modality - contains local or web source"""
+    local: Optional[ImageLocalConfig] = Field(default=None, description="Local image source config")
+    web: Optional[ImageWebConfig] = Field(default=None, description="Web/HuggingFace image source config")
+
+    @classmethod
+    def from_dict(cls, config: Dict, global_config: Dict) -> "ImageModalityConfig":
+        """Parse image modality config with global config injection"""
+        # Validate: only one source should be configured
+        sources = [key for key in ["local", "web"] if key in config]
+        if len(sources) > 1:
+            raise Exception(
+                f"Multiple image sources configured: {sources}. "
+                "Please specify only one of 'local' or 'web' under 'image'."
+            )
+        if len(sources) == 0:
+            raise Exception(
+                "image modality configured but no source specified. "
+                "Please specify 'local' or 'web' under 'image'."
+            )
+
+        local_config = None
+        web_config = None
+
+        if "local" in config:
+            local_config = ImageLocalConfig.from_dict({**global_config, **config["local"]})
+
+        if "web" in config:
+            web_config = ImageWebConfig.from_dict({**global_config, **config["web"]})
+
+        return cls(local=local_config, web=web_config)
+
+
+# ============ Text Modality Configuration ============
+
+class TextModalityConfig(BaseConfig):
+    """Configuration for text modality - contains local, web, or distill source"""
+    local: Optional[TextLocalConfig] = Field(default=None, description="Local document source config")
+    web: Optional[TextWebConfig] = Field(default=None, description="Web/HuggingFace source config")
+    distill: Optional[TextDistillConfig] = Field(default=None, description="Distillation source config")
+
+    @classmethod
+    def from_dict(cls, config: Dict, global_config: Dict) -> "TextModalityConfig":
+        """Parse text modality config with global config injection"""
+        # Validate: only one source should be configured
+        sources = [key for key in ["local", "web", "distill"] if key in config]
+        if len(sources) > 1:
+            raise Exception(
+                f"Multiple text sources configured: {sources}. "
+                "Please specify only one of 'local', 'web', or 'distill' under 'text'."
+            )
+        if len(sources) == 0:
+            raise Exception(
+                "text modality configured but no source specified. "
+                "Please specify one of 'local', 'web', or 'distill' under 'text'."
+            )
+
+        local_config = None
+        web_config = None
+        distill_config = None
+
+        if "local" in config:
+            local_config = TextLocalConfig.from_dict({**global_config, **config["local"]})
+
+        if "web" in config:
+            web_config = TextWebConfig.from_dict({**global_config, **config["web"]})
+
+        if "distill" in config:
+            distill_config = TextDistillConfig.from_dict({**global_config, **config["distill"]})
+
+        return cls(local=local_config, web=web_config, distill=distill_config)
+
+
+# ============ Task Configuration ============
+
 class SDGSTaskConfig(BaseConfig):
-    """Total Task Configuration"""
+    """Total Task Configuration with modality-based structure"""
     name: str = Field(default=DEFAULT_TASK_NAME)
-    task_type: str = Field(default=None)
-    local_task_config: Optional[LocalTaskConfig] = Field(default=None)
-    web_task_config: Optional[WebTaskConfig] = Field(default=None)
-    distill_task_config: Optional[DistillTaskConfig] = Field(default=None)
+    text: Optional[TextModalityConfig] = Field(default=None, description="Text modality configuration")
+    image: Optional[ImageModalityConfig] = Field(default=None, description="Image modality configuration")
 
     @classmethod
     def from_dict(cls, config: Dict) -> "SDGSTaskConfig":
+        # Validate: only one modality should be configured
+        modalities = [key for key in ["text", "image"] if key in config]
+        if len(modalities) > 1:
+            raise Exception(
+                f"Multiple modalities configured: {modalities}. "
+                "Please specify only one of 'text' or 'image' in your config."
+            )
+        if len(modalities) == 0:
+            raise Exception(
+                "No modality configured. "
+                "Please specify 'text' or 'image' in your config."
+            )
+
+        # Extract global task config
         name: str = config.get("name", DEFAULT_TASK_NAME)
         domain: str = config.get("domain", None)
         demo_examples_path: str = config.get("demo_examples_path", None)
@@ -134,6 +287,7 @@ class SDGSTaskConfig(BaseConfig):
         output_instruction: str = config.get("output_instruction") or ""
         num_samples: int = config.get("num_samples", None)
         batch_size: int = config.get("batch_size", None)
+
         global_config_dict = {
             "name": name,
             "domain": domain,
@@ -145,25 +299,17 @@ class SDGSTaskConfig(BaseConfig):
             "batch_size": batch_size,
         }
 
-        # Use explicitly set task_type if provided, otherwise auto-detect
-        task_type: str = config.get("task_type", None)
-        if task_type is None:
-            for t in ["local", "web", "distill"]:
-                if t in config:
-                    task_type = t
-                    break
+        # Parse text modality
+        text_config = None
+        if "text" in config:
+            text_config = TextModalityConfig.from_dict(config["text"], global_config_dict)
 
-        local_task_config = LocalTaskConfig.from_dict({**global_config_dict, **config["local"]}) if "local" in config else None
-        web_task_config = WebTaskConfig.from_dict({**global_config_dict, **config["web"]}) if "web" in config else None
-        distill_task_config = DistillTaskConfig.from_dict({**global_config_dict, **config["distill"]}) if "distill" in config else None
+        # Parse image modality
+        image_config = None
+        if "image" in config:
+            image_config = ImageModalityConfig.from_dict(config["image"], global_config_dict)
 
-        return cls(
-            name=name,
-            task_type=task_type,
-            local_task_config=local_task_config,
-            web_task_config=web_task_config,
-            distill_task_config=distill_task_config
-        )
+        return cls(name=name, text=text_config, image=image_config)
 
     def update(self, config: Dict):
         name: str = config.get("name", self.name)
@@ -183,25 +329,31 @@ class SDGSTaskConfig(BaseConfig):
         if "batch_size" in config:
             global_config_dict["batch_size"] = config["batch_size"]
 
-        if self.local_task_config:
-            self.local_task_config.update({**global_config_dict, **config.get("local", {})})
+        if self.text:
+            if self.text.local:
+                self.text.local.update({**global_config_dict, **config.get("text", {}).get("local", {})})
+            if self.text.web:
+                self.text.web.update({**global_config_dict, **config.get("text", {}).get("web", {})})
+            if self.text.distill:
+                self.text.distill.update({**global_config_dict, **config.get("text", {}).get("distill", {})})
 
-        if self.web_task_config:
-            self.web_task_config.update({**global_config_dict, **config.get("web", {})})
-
-        if self.distill_task_config:
-            self.distill_task_config.update({**global_config_dict, **config.get("distill", {})})
+        if self.image:
+            if self.image.local:
+                self.image.local.update({**global_config_dict, **config.get("image", {}).get("local", {})})
+            if self.image.web:
+                self.image.web.update({**global_config_dict, **config.get("image", {}).get("web", {})})
 
         self.name = name
-        self.task_type = config.get("task_type", self.task_type)
 
 
-# Model Configuration
+# ============ Model Configuration ============
+
 class InferenceConfig(BaseConfig):
     temperature: float = Field(default=0.0)
     max_tokens: int = Field(default=1500)
     top_p: float = Field(default=0.95)
     n: int = Field(default=1)
+
 
 class LocalModelConfig(BaseConfig):
     path: str = Field(..., description="model name or path (if provider is 'local', this param should be the path)")
@@ -214,7 +366,7 @@ class LocalModelConfig(BaseConfig):
         try:
             instance = cls(**config)
         except Exception as e:
-            raise Exception(f"Error occured when parsing configuration of local model: {str(e)}")
+            raise Exception(f"Error occurred when parsing configuration of local model: {str(e)}")
 
         return instance
 
@@ -225,13 +377,13 @@ class APIModelConfig(BaseConfig):
     api_key: str = Field(default=None, description="api key")
     base_url: str = Field(default=None, description="base url")
     max_retry_attempts: int = Field(
-        default=DEFAULT_MAX_RETRY_ATTEMPTS, 
-        ge=0, 
+        default=DEFAULT_MAX_RETRY_ATTEMPTS,
+        ge=0,
         description="retry number"
     )
     retry_delay: float = Field(
-        default=DEFAULT_RETRY_BASE_DELAY, 
-        ge=0, 
+        default=DEFAULT_RETRY_BASE_DELAY,
+        ge=0,
         description="retry delay"
     )
 
@@ -240,7 +392,7 @@ class APIModelConfig(BaseConfig):
         try:
             instance = cls(**config)
         except Exception as e:
-            raise Exception(f"Error occured when parsing configuration of API model: {str(e)}")
+            raise Exception(f"Error occurred when parsing configuration of API model: {str(e)}")
 
         return instance
 
@@ -264,15 +416,17 @@ class ModelConfig(BaseConfig):
         self.config.update(config)
 
 
-# Configuration for Answer Extraction
+# ============ Answer Extraction Configuration ============
+
 class AnswerExtractionConfig(BaseConfig):
     """Answer extraction configuration."""
     enabled: bool = Field(default=True, description="Whether answer extraction is enabled.")
-    tag: str = Field(...)
-    instruction: str = Field(...)
+    tag: str = Field(default=DEFAULT_ANSWER_TAG)
+    instruction: str = Field(default=DEFAULT_ANSWER_INSTRUCTION)
 
 
-# Configuration for postprocess of LLMs' responses
+# ============ Post-process Configuration ============
+
 class BasePostProcessConfig(BaseConfig):
     method: str = Field(default="majority_voting")
 
@@ -280,22 +434,30 @@ class BasePostProcessConfig(BaseConfig):
     def from_dict(config: Dict, method: str) -> "BasePostProcessConfig":
         if method == "majority_voting":
             return MajorityVotingConfig.from_dict(config)
-        
-        raise Exception(f"Error occured when parsing configuration of postprocess: {method} is not supported for postprocess.")
 
-## Configuration for Majority Voting
+        raise Exception(f"Error occurred when parsing configuration of postprocess: {method} is not supported for postprocess.")
+
+
 class BaseVotingConfig(BaseConfig):
     """Base Configuration for voting method"""
     method: str = Field(...)
-    
+
     @staticmethod
     def from_dict(config: Dict) -> "BaseVotingConfig":
-        try:
-            method = config.get("method", DEFAULT_VOTING_METHOD)
-            addition_config = config.get(method, {})
-            total_config = {**config, **addition_config}
-        except Exception as e:
-            raise Exception(f"Error occured when parsing configuration of majority_voting: {str(e)}")
+        # Infer method from which config key is present
+        valid_methods = ["exact_match", "semantic_clustering", "llm_judge"]
+        found_methods = [m for m in valid_methods if m in config]
+
+        if len(found_methods) > 1:
+            raise ValueError(
+                f"Multiple voting methods configured: {found_methods}. "
+                "Please uncomment only ONE method in majority_voting config."
+            )
+
+        method = found_methods[0] if found_methods else DEFAULT_VOTING_METHOD
+
+        addition_config = config.get(method, {})
+        total_config = {**config, **addition_config, "method": method}
 
         # get specific config according to method
         if method == "exact_match":
@@ -307,27 +469,36 @@ class BaseVotingConfig(BaseConfig):
         if method == "llm_judge":
             return LLMJudgeVotingConfig(**total_config)
 
-        raise Exception(f"Error occured when parsing configuration of majority_voting: method {method} is not supported for majority_voting.")
+        raise Exception(f"Error occurred when parsing configuration of majority_voting: method {method} is not supported for majority_voting.")
 
     def update(self, config: Dict):
-        method = config.get("method", self.method)
+        # Infer method from config structure
+        method = self.method
+        if "exact_match" in config:
+            method = "exact_match"
+        elif "semantic_clustering" in config:
+            method = "semantic_clustering"
+        elif "llm_judge" in config:
+            method = "llm_judge"
         addition_config = config.get(method, {})
         if addition_config:
             super().update({**config, **addition_config})
 
+
 class ExactMatchVotingConfig(BaseVotingConfig):
     numeric_tolerance: float = Field(default=1e-3)
+
 
 class SemanticClusteringVotingConfig(BaseVotingConfig):
     model_path: str = Field(default="BAAI/bge-large-zh-v1.5")
     device: str = Field(default="cuda:0", description="CUDA device (e.g., 'cuda:0')")
     similarity_threshold: float = Field(default=0.85)
 
+
 class LLMJudgeVotingConfig(BaseVotingConfig):
     temperature: float = Field(default=0.3)
 
 
-### Total configuration for majority voting
 class MajorityVotingConfig(BasePostProcessConfig):
     """Configuration for majority voting"""
     n_voting: int = Field(default=DEFAULT_N_VOTING)
@@ -346,7 +517,6 @@ class MajorityVotingConfig(BasePostProcessConfig):
         self.voting_config.update(config)
 
 
-# Total configuration for postprocess
 class PostProcessConfig(BaseConfig):
     methods: List[str] = Field(default=[])
     configs: Dict[str, BasePostProcessConfig] = Field(default={})
@@ -370,48 +540,69 @@ class PostProcessConfig(BaseConfig):
             else:
                 self.configs[method] = BasePostProcessConfig.from_dict(method_config_dict, method)
 
-# Configuration for Evaluation
+
+# ============ Evaluation Configuration ============
+
 class BaseComparisonConfig(BaseConfig):
     """Base Configuration for answer comparison method"""
     method: str = Field(default=DEFAULT_COMPARISON_METHOD)
 
     @staticmethod
     def from_dict(config: Dict) -> "BaseComparisonConfig":
-        try:
-            method = config["method"]
-            addition_config = config.get(method, {})
-            total_config = {**config, **addition_config}
-        except Exception as e:
-            raise Exception(f"Error occured when parsing configuration of answer_comparison: {str(e)}")
+        # Infer method from which config key is present
+        valid_methods = ["exact_match", "semantic", "llm_judge"]
+        found_methods = [m for m in valid_methods if m in config]
 
-        # get specific config according to method 
+        if len(found_methods) > 1:
+            raise ValueError(
+                f"Multiple comparison methods configured: {found_methods}. "
+                "Please uncomment only ONE method in answer_comparison config."
+            )
+
+        method = found_methods[0] if found_methods else DEFAULT_COMPARISON_METHOD
+
+        addition_config = config.get(method, {})
+        total_config = {**config, **addition_config, "method": method}
+
+        # get specific config according to method
         if method == "exact_match":
             return ExactMatchComparisonConfig(**total_config)
-        
+
         if method == "semantic":
             return SemanticComparisonConfig(**total_config)
 
         if method == "llm_judge":
             return LLMJudgeComparisonConfig(**total_config)
-        
-        raise Exception(f"Error occured when parsing configuration of answer_comparison: method {method} is not supported for answer_comparison.")
+
+        raise Exception(f"Error occurred when parsing configuration of answer_comparison: method {method} is not supported for answer_comparison.")
 
     def update(self, config: Dict):
-        method = config.get("method", self.method)
+        # Infer method from config structure
+        method = self.method
+        if "exact_match" in config:
+            method = "exact_match"
+        elif "semantic" in config:
+            method = "semantic"
+        elif "llm_judge" in config:
+            method = "llm_judge"
         addition_config = config.get(method, {})
         if addition_config:
             super().update({**config, **addition_config})
 
+
 class ExactMatchComparisonConfig(BaseComparisonConfig):
     numeric_tolerance: float = Field(default=1e-3)
+
 
 class SemanticComparisonConfig(BaseComparisonConfig):
     model_path: str = Field(default="BAAI/bge-m3")
     device: str = Field(default="cuda:0", description="CUDA device (e.g., 'cuda:0')")
     similarity_threshold: float = Field(default=0.85)
 
+
 class LLMJudgeComparisonConfig(BaseComparisonConfig):
     temperature: float = Field(default=0.3)
+
 
 class EvaluationConfig(BaseConfig):
     """Configuration for evaluation"""
@@ -436,7 +627,8 @@ class EvaluationConfig(BaseConfig):
         super().update(config)
 
 
-# Configuration for Rewrite
+# ============ Rewrite Configuration ============
+
 class BaseRewriteConfig(BaseConfig):
     method: str = Field(default=DEFAULT_REWRITE_METHOD)
     input_instruction: Optional[str] = Field(default="", description="input instruction (inherited from task config)")
@@ -445,32 +637,45 @@ class BaseRewriteConfig(BaseConfig):
 
     @staticmethod
     def from_dict(config: Dict) -> "BaseRewriteConfig":
-        try:
-            method = config["method"]
-            addition_config = config.get(method, {})
-            total_config = {**config, **addition_config}
-        except Exception as e:
-            raise Exception(f"Error occured when parsing configuration of rewrite: {str(e)}")
+        # Infer method from which config key is present
+        valid_methods = ["difficulty_adjust"]
+        found_methods = [m for m in valid_methods if m in config]
+
+        if len(found_methods) > 1:
+            raise ValueError(
+                f"Multiple rewrite methods configured: {found_methods}. "
+                "Please uncomment only ONE method in rewrite config."
+            )
+
+        method = found_methods[0] if found_methods else DEFAULT_REWRITE_METHOD
+
+        addition_config = config.get(method, {})
+        total_config = {**config, **addition_config, "method": method}
 
         # get specific config according to method
         if method == "difficulty_adjust":
             instance = DifficultyAdjustRewriteConfig(**total_config)
             return instance
 
-        raise Exception(f"Error occured when parsing configuration of rewrite: method {method} is not supported for rewrite.")
+        raise Exception(f"Error occurred when parsing configuration of rewrite: method {method} is not supported for rewrite.")
 
     def update(self, config: Dict):
-        method = config.get("method", self.method)
+        # Infer method from config structure
+        method = self.method
+        if "difficulty_adjust" in config:
+            method = "difficulty_adjust"
         addition_config = config.get(method, {})
         if addition_config:
             super().update({**config, **addition_config})
+
 
 class DifficultyAdjustRewriteConfig(BaseRewriteConfig):
     easier_temperature: float = Field(default=DEFAULT_EASIER_TEMPERATURE)
     harder_temperature: float = Field(default=DEFAULT_HARDER_TEMPERATURE)
 
 
-# Configuration for Translation
+# ============ Translation Configuration ============
+
 class TranslationConfig(BaseConfig):
     """Configuration for translating generated dataset to target language"""
     language: str = Field(default="english", description="Target language for the final dataset (e.g., 'english', 'arabic')")
@@ -485,7 +690,8 @@ class TranslationConfig(BaseConfig):
             raise Exception(f"Error occurred when parsing translation configuration: {str(e)}")
 
 
-# Global
+# ============ Global Configuration ============
+
 class SDGSConfig(BaseConfig):
     device: str = Field(default="cuda:0", description="CUDA device to use for all GPU operations")
     output_dir: str = Field(..., description="synthetic dataset output directory")
@@ -526,9 +732,18 @@ class SDGSConfig(BaseConfig):
         global_device = config_dict.get("device", "cuda:0")
         task_config = SDGSTaskConfig.from_dict(config_dict["task"])
 
-        # Inject global device into parsing config if local task exists
-        if task_config.local_task_config and task_config.local_task_config.parsing:
-            task_config.local_task_config.parsing.device = global_device
+        # Inject global device into parsing config if text.local exists
+        if task_config.text and task_config.text.local and task_config.text.local.parsing:
+            task_config.text.local.parsing.device = global_device
+
+        # Inject output_dir and device into image config if exists
+        if task_config.image:
+            if task_config.image.local:
+                task_config.image.local.output_dir = config_dict["output_dir"]
+                if task_config.image.local.parsing:
+                    task_config.image.local.parsing.device = global_device
+            if task_config.image.web:
+                task_config.image.web.output_dir = config_dict["output_dir"]
 
         generator_config = ModelConfig.from_dict(config_dict["llm"])
         base_model_config = ModelConfig.from_dict(config_dict["base_model"])
@@ -583,10 +798,10 @@ class SDGSConfig(BaseConfig):
     def update(self, config: Dict):
         if "task" in config:
             self.task_config.update(config.pop("task"))
-        
+
         if "llm" in config:
             self.generator_config.update(config.pop("llm"))
-        
+
         if "base_model" in config:
             self.base_model_config.update(config.pop("base_model"))
 

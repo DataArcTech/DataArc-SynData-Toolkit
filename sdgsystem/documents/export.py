@@ -1,10 +1,3 @@
-"""
-Export utility for converting chunks to JSONL format for passage datasets.
-
-This module provides a simple function to export chunked text to the JSONL format
-expected by the synthetic data generation pipeline.
-"""
-
 import json
 import logging
 from pathlib import Path

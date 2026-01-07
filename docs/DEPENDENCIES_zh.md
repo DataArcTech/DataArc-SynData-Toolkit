@@ -1,11 +1,11 @@
-# 📦 安装指南
+# 📦 安装指南（中文版）
 
 本文档描述运行 **DataArc SynData Toolkit** 所需的全部依赖，并提供详细的安装步骤。
 
 ## 1. 硬件要求
 
 本项目需要 GPU 环境，推荐配置如下：
-  - Linux（Ubuntu 22.04+）
+  - Linux（Ubuntu 22.04+）或 Windows 10/11
   - CUDA 12.8+
   - GPU 显存 ≥ 24 GB（适用于 7B–13B 模型）
 
@@ -98,7 +98,7 @@ nvidia-smi
 
 ``` shell
 [[tool.uv.index]]
-name = "pytorch-cu128"  # 例如你的环境为 CUDA 12.6，则将下方所有 cu128 都改为 cu126
+name = "pytorch-cu128"  ## 例如你的环境为 CUDA 12.6，则将下方所有 cu128 都改为 cu126
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
@@ -118,14 +118,15 @@ uv add torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0
 ```
 
 > [!Note]
-> 如果你想使用GRPO进行模型训练，CUDA最低版本为 CUDA>=12.8
+> 如果你想尝试模型训练模块，你应该使用 CUDA>=12.8
 
 #### 第三步 — 安装 CUDA 依赖库（必须在 PyTorch 之后安装）
 
-vLLM 依赖于已安装的 PyTorch 和 CUDA 运行时。使用以下命令安装正确版本的 vLLM。
+vLLM 和 flash-attention 依赖于已安装的 PyTorch 和 CUDA 运行时。使用以下命令安装正确版本的 vLLM 和 flash-attention。
 
 ```shell
-uv add vllm flash-attn
+uv add flash-attn --no-build-isolation
+uv add vllm
 ```
 
 #### 第四步 - 安装通用依赖（与 CUDA 无关）

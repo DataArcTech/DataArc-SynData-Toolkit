@@ -12,9 +12,19 @@ All LLM prompts used across retrieval, generation, evaluation, etc.
 # RETRIEVAL MODULE PROMPTS
 # ============================================================================
 
-KEYWORD_EXTRACTION_PROMPT = (
+DEFAULT_KEYWORD_EXTRACTION_PROMPT = (
     "You can summarize the domain of this task: {task_instruction} "
     "into a list of relevant keywords. You can refer to these task examples {demo_examples}. "
+    "Output only a Python list of keywords like [\"keyword1\", \"keyword2\", \"keyword3\"]."
+)
+
+HF_KEYWORD_EXTRACTION_PROMPT = (
+    "Extract search keywords for finding datasets on HuggingFace related to this task: {task_instruction}\n\n"
+    "Generate BROAD, GENERIC keywords that are likely to match dataset names on HuggingFace. "
+    "Use simple, common terms rather than specific technical jargon.\n\n"
+    "Good keywords: 'chart', 'math', 'medical', 'science', 'qa', 'vqa', 'reasoning'\n"
+    "Bad keywords: 'multi-step arithmetic', 'USMLE pathology', 'graduate-level physics'\n\n"
+    "Examples: {demo_examples}\n\n"
     "Output only a Python list of keywords like [\"keyword1\", \"keyword2\", \"keyword3\"]."
 )
 
@@ -23,7 +33,7 @@ KEYWORD_EXTRACTION_PROMPT = (
 # GENERATION MODULE PROMPTS
 # ============================================================================
 
-META_PROMPT = """
+TEXT_META_PROMPT = """
 As a DatasetGenerator, your task is to generate one new example (`input` and `output`) based on the [new instruction], [reference passage], and [few-shot examples]. Please provide a JSON dictionary response that includes the new `input` and its corresponding `output`. Use the `input` and `output` keys in the dictionary.
 Try you best to ensure that the input and output you generate are distinct from the provided examples while maintaining a diverse, detailed, precise, comprehensive, and high-quality response.
 CRITICAL: You MUST strictly follow the output format instruction, especially any answer formatting requirements (e.g., answer markers, tags, or special formatting). The generated output must exactly match the specified format.
@@ -59,6 +69,27 @@ Input Format: {input_instruction}
 Output Format: {output_instruction}
 
 Only output the revised sample in the python dictionary form with 'input' and 'output' keys."""
+
+# Image-aware rewrite prompts (for VLM)
+HARDER_SAMPLE_WITH_IMAGE_PROMPT = """Look at the provided image. The current question-answer pair about this image is overly simplistic and can be solved effortlessly by the model. Please generate an alternative question-answer pair about the SAME image that presents a significantly more challenging and intricate problem—one that requires multi-step reasoning, creative problem-solving, and deeper analytical thought.
+
+Current sample: {sample}
+
+You MUST follow these format instructions when generating the harder sample:
+Input Format: {input_instruction}
+Output Format: {output_instruction}
+
+Only output the revised sample in the python dictionary form with 'input' and 'output' keys. The question must still be answerable by looking at the provided image."""
+
+SIMPLER_SAMPLE_WITH_IMAGE_PROMPT = """Look at the provided image. The current question-answer pair about this image is too hard and can not be solved by the model. Please generate an alternative question-answer pair about the SAME image that presents a simpler question or a sub-problem of the original question.
+
+Current sample: {sample}
+
+You MUST follow these format instructions when generating the simpler sample:
+Input Format: {input_instruction}
+Output Format: {output_instruction}
+
+Only output the revised sample in the python dictionary form with 'input' and 'output' keys. The question must still be answerable by looking at the provided image."""
 
 LLM_JUDGE_VOTING_PROMPT = """You are an expert judge tasked with selecting the best answer from multiple candidates.
 
@@ -377,7 +408,67 @@ JSON Array Output:"""
 
 
 # ============================================================================
-# PART4: TRAINING MODULE PROMPTS
+# PART4: IMAGE MODALITY PROMPTS
 # ============================================================================
 
-# TODO: Add training prompts here when implementing training module
+IMAGE_FIELD_FILTER_PROMPT = """You are a data field identifier for image-based QA datasets. Your task is to analyze the field names and determine which fields contain the image, input question, and output answer.
+
+Given a list of field names from a dataset, identify:
+- **image**: the field containing the image data (could be named "image", "img", "photo", "picture", etc.)
+- **input**: the field containing the question/prompt about the image (could be named "question", "query", "prompt", "instruction", etc.)
+- **output**: the field containing the answer/response (could be named "answer", "response", "label", "ground_truth", etc.)
+
+### Output format:
+Return a JSON object with three keys:
+{{
+  "image": "<name of the image field>",
+  "input": "<name of the input/question field>",
+  "output": "<name of the output/answer field>"
+}}
+
+### Rules:
+1. Choose the field names that most likely correspond to image, question (input), and answer (output).
+2. Only select from the provided legal keys.
+3. If you cannot identify all three fields, use null for the missing ones:
+   {{
+     "image": null,
+     "input": null,
+     "output": null
+   }}
+4. Do NOT infer or fabricate field names not present in the list.
+5. Only output the field names, not their contents.
+
+### Example
+Legal Keys: ["image", "question", "answer", "category"]
+
+Output:
+{{
+  "image": "image",
+  "input": "question",
+  "output": "answer"
+}}
+
+### Example 2
+Legal Keys: ["img", "prompt", "response", "metadata"]
+
+Output:
+{{
+  "image": "img",
+  "input": "prompt",
+  "output": "response"
+}}
+
+Legal Keys: {legal_keys}
+
+Output:
+"""
+
+IMAGE_META_PROMPT = """As a DatasetGenerator for image-based tasks, your task is to generate {num_samples} diverse question-answer pairs (`input` and `output`) based on the provided image.
+
+IMPORTANT: All generated questions and answers MUST be directly based on the visual content of the provided image. The questions should ask about elements, details, or information that can only be answered by analyzing the image.
+
+Try your best to ensure that the question-answer pairs you generate are distinct from each other while maintaining diverse, detailed, precise, comprehensive, and high-quality responses.
+
+CRITICAL: You MUST strictly follow the output format instruction, especially any answer formatting requirements. The generated output must exactly match the specified format.
+"""
+

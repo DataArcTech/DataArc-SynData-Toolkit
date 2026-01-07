@@ -156,13 +156,13 @@ export interface SSEEventData {
   task_type: string
   task_name: string
   status:
-  | 'pending'
-  | 'running'
-  | 'generation_complete'
-  | 'complete'
-  | 'completed'
-  | 'error'
-  | 'failed'
+    | 'pending'
+    | 'running'
+    | 'generation_complete'
+    | 'complete'
+    | 'completed'
+    | 'error'
+    | 'failed'
   created_at: string
   updated_at: string
   phase: SSEPhase | null
@@ -267,7 +267,7 @@ interface TaskState {
 const DEFAULT_CONFIG: TaskConfig = {
   device: 'cuda:0',
   n_workers: 2,
-  output_dir: './outputs',
+  output_dir: '.output/',
   export_format: 'jsonl',
   task: {
     name: '',
@@ -305,7 +305,7 @@ const DEFAULT_CONFIG: TaskConfig = {
     path: '',
   },
   llm: {
-    provider: 'openai',
+    provider: '',
     model: '',
     api_key: '',
     base_url: '',
@@ -318,12 +318,12 @@ const DEFAULT_CONFIG: TaskConfig = {
     methods: ['majority_voting'],
     majority_voting: {
       n: 8,
-      method: 'exact_match',
+      method: '',
     },
   },
   evaluation: {
     answer_comparison: {
-      method: 'semantic',
+      method: '',
     },
   },
   rewrite: {

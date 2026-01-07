@@ -1,11 +1,5 @@
-"""
-Universal answer extraction from LLM responses.
-
-Simple functions to extract answers from LLM responses using configurable tags.
-"""
-
-import logging
 from typing import List, Optional, Union
+import logging
 
 from ..configs.config import AnswerExtractionConfig
 

@@ -1,9 +1,3 @@
-"""
-SFT (Supervised Fine-Tuning) method implementation.
-
-Builds the command to launch verl's fsdp_sft_trainer via torchrun.
-"""
-
 import logging
 from typing import Optional
 

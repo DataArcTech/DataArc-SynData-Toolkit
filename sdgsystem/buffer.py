@@ -1,6 +1,3 @@
-"""
-Buffer module, which supports caching and restoring the progress of iteration processes.
-"""
 import os
 import numpy as np
 import threading

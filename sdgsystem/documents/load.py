@@ -1,7 +1,3 @@
-"""
-Document loader for reading PDF files from directories.
-"""
-
 import json
 from pathlib import Path
 from typing import List, Optional

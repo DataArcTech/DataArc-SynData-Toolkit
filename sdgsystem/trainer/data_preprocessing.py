@@ -1,11 +1,3 @@
-"""
-Data preprocessing for transforming SDG pipeline outputs to verl training formats.
-
-Two main functions:
-- prepare_sft_data: Convert JSONL to Parquet for SFT training (prompt + response)
-- prepare_grpo_data: Convert JSONL to Parquet for GRPO training (prompt only)
-"""
-
 import json
 import logging
 from pathlib import Path

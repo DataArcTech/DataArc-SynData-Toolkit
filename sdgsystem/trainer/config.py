@@ -1,7 +1,3 @@
-"""
-Training configuration classes for different post-training methods.
-"""
-
 import logging
 import yaml
 from enum import Enum

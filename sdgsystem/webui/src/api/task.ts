@@ -22,8 +22,7 @@ export interface CreateJobResponse {
 
 export interface CreateJobRequest {
   config: TaskConfig
-  documents?: File[]
-  demo_examples?: File[]
+  files?: File[]
 }
 
 export const taskApi = {
@@ -49,15 +48,9 @@ export const taskApi = {
     const configStr = JSON.stringify(data.config)
     formData.append('config', configStr)
 
-    if (data.documents && data.documents.length > 0) {
-      data.documents.forEach(file => {
-        formData.append('documents', file)
-      })
-    }
-
-    if (data.demo_examples && data.demo_examples.length > 0) {
-      data.demo_examples.forEach(file => {
-        formData.append('demo_examples', file)
+    if (data.files && data.files.length > 0) {
+      data.files.forEach(file => {
+        formData.append('files', file)
       })
     }
 

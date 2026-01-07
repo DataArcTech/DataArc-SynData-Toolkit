@@ -1,15 +1,8 @@
-"""
-Evol-Instruct Synthetic data generator for distillation pipeline.
-
-This module provides a simple LLM-based generator that creates synthetic training
-data based on task instructions and demonstration examples.
-"""
-
 import logging
 from typing import List, Dict, Optional
 
 from ..models import ModelClient
-from ..configs.config import DistillTaskConfig
+from ..configs.config import TextDistillConfig
 from ..prompts import EVOL_INSTRUCT_BATCH_GENERATION_IN_BREADTH_PROMPT, EVOL_INSTRUCT_BATCH_GENERATION_IN_DEPTH_PROMPT
 from .base import BaseDistillation
 
@@ -30,14 +23,14 @@ class EvolInstructDistillation(BaseDistillation):
     def __init__(
         self,
         model: ModelClient,
-        config: DistillTaskConfig
+        config: TextDistillConfig
     ):
         """
         Initialize the synthetic data generator.
 
         Args:
             model: ModelClient instance
-            config: DistillTaskConfig instance containing task configuration
+            config: TextDistillConfig instance containing task configuration
         """
         super().__init__(model, config)
 

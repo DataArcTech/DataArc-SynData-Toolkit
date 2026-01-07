@@ -1,7 +1,3 @@
-"""
-Pipeline for obtaining trainnig data according to input task definition.
-input task definition -> local / web / distill task -> evaluate & rewrite -> output: training dataset
-"""
 import os
 import shutil
 import logging
@@ -45,19 +41,40 @@ class Pipeline:
             save_path: Path to save the final dataset
             export_format: Format to export (jsonl, json, etc.)
         """
+        # Detect modality from task config
+        modality = "text"
+        if self.config.task_config.image is not None:
+            modality = "image"
+
         # Generate initial dataset (task-specific steps logged in executor)
         dataset = self.task_executor.execute(parallel_executor=self.parallel_executor)
 
         # Initial evaluation (binary: solved vs unsolved)
-        initial_evaluation = self.evaluator.evaluate(dataset)
+        initial_evaluation = self.evaluator.evaluate(
+            dataset,
+            mode="inference",
+            modality=modality,
+            output_dir=self.config.output_dir
+        )
         logger.info(f"Initial evaluation completed: {len(dataset)} samples evaluated")
 
         # Rewrite samples based on difficulty
-        rewritten_dataset = self.rewriter.rewrite(dataset, initial_evaluation, parallel_executor=self.parallel_executor)
+        rewritten_dataset = self.rewriter.rewrite(
+            dataset,
+            initial_evaluation,
+            parallel_executor=self.parallel_executor,
+            modality=modality,
+            output_dir=self.config.output_dir
+        )
         logger.info(f"Rewriting completed: {len(rewritten_dataset)} samples processed")
 
         # Re-evaluate rewritten samples with scoring (pass@n)
-        final_evaluation = self.evaluator.evaluate(rewritten_dataset, mode="scoring")
+        final_evaluation = self.evaluator.evaluate(
+            rewritten_dataset,
+            mode="scoring",
+            modality=modality,
+            output_dir=self.config.output_dir
+        )
         logger.info(f"Evaluation rewritten samples completed")
 
         # Categorize by score into three datasets
@@ -129,11 +146,13 @@ class Pipeline:
             return
 
         buffer_patterns = [
-            # Generation buffers
-            "Local-Generation", "Local-Validation", "Local-Pattern",
-            "Distillation-Generation", "Distillation-Validation", "Distillation-Pattern",
-            # Refinement buffers
-            "rewrite-generation", "rewrite-validation"
+            # Text modality buffers
+            "Text-Local-Generation", "Text-Local-Validation", "Text-Local-Keywords",
+            "Text-Distillation-Generation", "Text-Distillation-Validation",
+            "Text-rewrite-generation", "Text-rewrite-validation",
+            # Image modality buffers
+            "Image-Local-Generation", "Image-Local-Validation",
+            "Image-rewrite-generation", "Image-rewrite-validation",
         ]
 
         for pattern in buffer_patterns:

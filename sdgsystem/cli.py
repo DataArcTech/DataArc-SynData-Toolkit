@@ -10,7 +10,6 @@ load_dotenv()
 def transform_arguments_to_configurations(
     output_dir: str | None,
     export_format: str | None,
-    task_type: str | None,
     task_definition: str | None,
     generator_provider: str | None,
     generator_model: str | None,
@@ -23,16 +22,18 @@ def transform_arguments_to_configurations(
     if export_format:
         config["export_format"] = export_format
 
-    # task
-    task_config = {}
-    if task_type:
-        task_config["task_type"] = task_type
+    # task - inject task_definition into existing modality structure
+    # The modality (text.local, text.web, text.distill) is determined by the config file
     if task_definition:
-        for t in ["local", "web"]:
-            if t == "local":
-                task_config[t] = {"generation": {"task_instruction": task_definition}}
-            else:
-                task_config[t] = {"task_instruction": task_definition}
+        # This will be merged with the config file settings
+        # The actual modality is determined by which config section is present
+        config["task"] = {
+            "text": {
+                "local": {"generation": {"task_instruction": task_definition}},
+                "web": {"task_instruction": task_definition},
+                "distill": {"task_instruction": task_definition}
+            }
+        }
 
     # generator
     llm_config = {}
@@ -41,9 +42,6 @@ def transform_arguments_to_configurations(
     if generator_model:
         llm_config["model"] = generator_model
 
-    # integrate
-    if task_config:
-        config["task"] = task_config
     if llm_config:
         config["llm"] = llm_config
 
@@ -60,7 +58,6 @@ def cli():
 @click.argument("config_file", type=click.Path(exists=True), required=False)
 @click.option("--output_dir", type=str, help="Output directory for generated data")
 @click.option("--export_format", type=str, help="Export format (jsonl, json, csv)")
-@click.option("--task_type", type=str, help="Task type (local, web, distill)")
 @click.option("--task_definition", type=str, help="Task definition/instruction")
 @click.option("--generator_provider", type=str, help="LLM provider for generator (e.g., openai, ollama)")
 @click.option("--generator_model", type=str, help="LLM model name for generator")
@@ -68,7 +65,6 @@ def generate(
     config_file: str | None,
     output_dir: str | None,
     export_format: str | None,
-    task_type: str | None,
     task_definition: str | None,
     generator_provider: str | None,
     generator_model: str | None,
@@ -81,7 +77,6 @@ def generate(
     config.update(transform_arguments_to_configurations(
         output_dir,
         export_format,
-        task_type,
         task_definition,
         generator_provider,
         generator_model,

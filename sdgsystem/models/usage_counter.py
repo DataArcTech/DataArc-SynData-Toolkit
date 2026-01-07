@@ -1,6 +1,3 @@
-"""
-Statistic and estimation for the token and time usage when using models
-"""
 from typing import Dict, Callable, Optional
 import threading
 import logging
@@ -85,6 +82,13 @@ class ModelUsageCounter:
     def set_on_update(self, callback: Optional[Callable[["ModelUsageCounter"], None]]):
         """Set callback to be called after estimate_usage."""
         self._on_update = callback
+
+    def resize_total(self, total: int):
+        """Resize total and recalculate remain accordingly."""
+        self.total = total
+        self.remain = self.total - self.completed
+        if self.remain < 0:
+            self.remain = 0
 
     def estimate_usage(self, n):
         """

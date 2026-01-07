@@ -1,7 +1,3 @@
-"""
-File of majority voting methods for LLM responses:
-    - Majority Voting
-"""
 import random
 import time
 import logging
@@ -97,7 +93,7 @@ class MajorityVotingProcessor(BasePostProcessor):
 
                 # Use valid_answers for voting
                 answers = valid_answers
-                
+
                 if is_llm_judge_voting:
                     self.voting: LLMJudgeVoting
                     mode_value, selected_idx, mode_ids = self.voting.voting(answers, usage_counter, example_input=sample_input)
@@ -110,12 +106,90 @@ class MajorityVotingProcessor(BasePostProcessor):
 
                 # Get the selected output
                 selected_output = responses[selected_idx]
+                selected_outputs.append(selected_output)
 
-                # # Get all matching responses sorted by length (for training diversity)
-                # all_matching_outputs = [(responses[idx], len(responses[idx])) for idx in mode_ids]
-                # all_matching_outputs.sort(key=lambda x: x[1])
+            output = selected_outputs[0] if is_single_prompt else selected_outputs
+            all_selected_responses.append(output)
 
-                # return selected_output, all_matching_outputs
+        if is_single_prompt:
+            if n == 1:
+                final_responses: str = all_selected_responses[0]
+            else:
+                final_responses: List[str] = all_selected_responses
+        else:
+            if n == 1:
+                final_responses: List[str] = all_selected_responses[0]
+            else:
+                final_responses: List[List[str]] = list(zip(*all_selected_responses))
+
+        return final_responses
+
+    def generate_with_images(self,
+        prompts: Union[str, List[str]],
+        images: Union[str, List[str]],
+        n: int = 1,
+        answer_extractor: AnswerExtractor = None,
+        processor_args: ProcessorArgs = ProcessorArgs(),
+        usage_counter: ModelUsageCounter = None,
+        **kwargs
+    ) -> Union[str, List[str], List[List[str]]]:
+        # if processor_args.majority_voting is None or disable, skip majority_voting
+        if processor_args.majority_voting is None or not processor_args.majority_voting.enable:
+            return self._generate_with_images(prompts, images, n, answer_extractor, processor_args, usage_counter, **kwargs)
+
+        # check whether prompt is single
+        is_single_prompt = isinstance(prompts, str)
+
+        # extract samples from kwargs if exist
+        samples = processor_args.majority_voting.samples
+        samples: List[Dict] = [samples] if isinstance(samples, Dict) else samples
+
+        all_selected_responses = []      # n * len(prompts)
+
+        for _ in range(n):
+            # get response from VLM model
+            model_responses = self._generate_with_images(prompts, images, self.n_voting, None, processor_args, usage_counter, **kwargs)
+
+            ## if is llm-judge-voting, extract questions from kwargs
+            is_llm_judge_voting = isinstance(self.voting_config, LLMJudgeVotingConfig)
+
+            selected_outputs: List[str] = []
+            all_responses = [model_responses] if is_single_prompt else model_responses
+
+            for responses, sample in zip(all_responses, samples):
+                sample_input: str = sample.get("input")
+                sample_output: str = sample.get("output", None)
+                if sample_output:
+                    responses.append(sample_output)
+
+                answers: List[str] = answer_extractor.extract_answers(responses)
+
+                # Check if answer extraction returned None
+                if answers is None:
+                    logger.warning(f"  Answer extraction failed - returned None")
+                    return None
+
+                # Filter out None values from failed extractions
+                valid_answers = [ans for ans in answers if ans is not None]
+                if len(valid_answers) < 2:
+                    logger.warning(f"  Not enough valid answers for voting: {len(valid_answers)} valid out of {len(responses)} responses")
+                    return None
+
+                # Use valid_answers for voting
+                answers = valid_answers
+
+                if is_llm_judge_voting:
+                    self.voting: LLMJudgeVoting
+                    mode_value, selected_idx, mode_ids = self.voting.voting(answers, usage_counter, example_input=sample_input)
+                else:
+                    mode_value, selected_idx, mode_ids = self.voting.voting(answers, usage_counter)
+
+                # Check if voting succeeded
+                if mode_value is None or mode_ids is None or selected_idx is None:
+                    return None
+
+                # Get the selected output
+                selected_output = responses[selected_idx]
                 selected_outputs.append(selected_output)
 
             output = selected_outputs[0] if is_single_prompt else selected_outputs

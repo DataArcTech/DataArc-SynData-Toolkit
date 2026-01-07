@@ -1,98 +1,94 @@
-# global configuration
-seed: 2024
-# CUDA device for all GPU operations (vLLM, SentenceTransformer, MinerU)
-device: cuda:3
-# Number of parallel workers to accelerate the process (default to 1 as sequential processing)
-n_workers: 1
-# synthetic dataset output directory. Data will save in {output_dir}/{task_name}_final.{export_format}
-output_dir: ./outputs/gsm8k
-# export dataset format
-export_format: jsonl
+# Global configuration
+device: cuda:0               # CUDA device for all GPU operations (vLLM, SentenceTransformer, MinerU)
+n_workers: 2                 # Number of parallel workers to accelerate the process (default to 1 as sequential processing)
+output_dir: ./outputs/gsm8k  # synthetic dataset output directory
+export_format: jsonl         # export dataset format
 
+# Global task configuration
 task:
   name: gsm8k
-  domain: mathematics
-  demo_examples_path: ./dataset/demo_examples/gsm8k_demo.jsonl
-  task_type: local
-  
-  # local task configuration
-  local:
-    # Parsing Configuration
-    parsing:
-      # Directions to document corpora
-      document_dir: ./dataset/documents
-      method: mineru
+  domain: mathematics        # Keywords of the domain of target dataset
+  demo_examples_path: ./dataset/demo_examples/gsm8k_demo.jsonl   # path for demo examples .jsonl file (Optional)
 
-    # Retrieval Configuration
-    retrieval:
-      passages_dir: ./dataset/passages
-      method: bm25
-      top_k: 1000        # selected top k passage retrieved
-    generation:
-      # Task instruction used for data generation
-      task_instruction: |
-        Generate a grade school math word problem that requires multi-step reasoning.
-        The problem should involve basic arithmetic operations and have a clear numerical answer.
-      # Input instruction - prepended to model input during inference
-      input_instruction: |
-        The input should be a math word problem that requires multi-step reasoning.
-      # Output instruction - appended to prompt to guide output format (HOW to solve)
-      output_instruction: |
-        The output should contain reasoning process step by step and a final answer.
-      num_samples: 5         # number of initial data
-      temperature: 1.0        # temperature for LLM in initial data generation
+  # Task instruction used for data generation, define the type, structure, and requirements of the dataset to be generated
+  task_instruction: >-
+    Generate a grade school math word problem that requires multi-step reasoning.
+    The problem should involve basic arithmetic operations and have a clear numerical answer.
+  # Input instruction - appended to prompt to guide the format of input field
+  input_instruction: >-
+    The input should be a math word problem that requires multi-step reasoning.
+  # Output instruction - appended to prompt to guide the format of output field
+  output_instruction: >-
+    The output should contain reasoning process step by step.
 
-    # web task configuration
-  web:
-    huggingface_token: "hf_"        # optional. This parameter can be set by 'export HUGGINGFACE_TOKEN="YOUR TOKEN"'
-    task_instruction: |
-      You are given a word problem involving basic arithmetic, algebra, or geometry. Your task is to carefully read the problem and provide a step-by-step solution for it.
-    input_instruction: |
-      Follow this format: Read the questions and answers carefully, and choose the one you think is appropriate among the three options A, B and C.’ then Q:[Your question here] CHOICES: A: ...,B: ...,C: ...
-    output_instruction: |
-      Your output thinking process and answer should be enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> thinking process here </think> <answer> a single option here </answer>.
-              
-  # distill task configuration
-  distill:
-    # Task instruction for synthetic data generation
-    task_instruction: |
-      Generate a grade school math word problem that requires multi-step reasoning.
-      The problem should involve basic arithmetic operations and have a clear numerical answer.
-    # Input instruction - prepended to model input during inference
-    input_instruction: |
-      The input should be a math word problem that requires multi-step reasoning.
-    # Output instruction - appended to prompt to guide output format
-    output_instruction: |
-      The output should contain reasoning process step by step and a final answer.
-    # Number of synthetic samples to generate
-    num_samples: 5
-    # Batch size for generation (how many samples to generate per API call)
-    batch_size: 5
-    # Temperature for LLM generation
-    temperature: 1.0
+  num_samples: 10      # Number of samples to generate
+  batch_size: 5        # Batch processing size across pipeline
 
+  # Text modality configuration
+  # Output format: {"input": "question", "output": "answer"}
+  text:
+    # Local task: generate from local documents
+    local:
+      # Parsing Configuration
+      parsing:
+        document_dir: ./dataset/documents          # Path to documents directory
+        method: mineru                             # default to mineru parser
 
-# Base model for evaluation and inference load from vllm
+      # Retrieval Configuration
+      retrieval:
+        passages_dir: ./dataset/passages   # path to document passages after parsing and chunking
+        method: bm25                       # default to bm25 retriever
+        top_k: 1000                        # selected top k passage retrieved
+
+      # Generation Configuration
+      generation:
+        temperature: 1.0       # Temperature for LLM in initial data generation
+
+    # Web task: crawl from HuggingFace
+    # web:
+    #   huggingface_token: "hf_"        # Optional. This parameter can be set by 'export HUGGINGFACE_TOKEN="YOUR TOKEN"'
+    #   dataset_limit: 5                # Number of datasets to crawl per keyword (default: 5)
+    #   dataset_score_threshold: 30     # minimum overall score (sum of 5 criteria) for a dataset to be valid (Range: 0~50)
+
+    # Distill task: pure instruction-based generation
+    # distill:
+    #   temperature: 1.0         # Temperature for LLM distillation
+
+  # Image modality configuration (comment out 'text' above to use this)
+  # Output format: {"input": "question", "output": "answer", "image": "path/to/image.png"}
+  # image:
+  #   # Local task: generate QA data from local images
+  #   local:
+  #     # Image sources (at least one required, can combine both)
+  #     image_dir: /path/to/your/images        # Directory containing images (jpg, png, etc.)
+  #
+  #     # PDF parsing for image extraction (optional, uses MinerU)
+  #     parsing:
+  #       document_dir: /path/to/your/pdfs     # Directory containing PDF documents
+  #       method: mineru                       # Parser method (default: mineru)
+  #
+  #     # Generation Configuration
+  #     generation:
+  #       temperature: 1.0       # Temperature for VLM in data generation
+  #
+  #   # Web task: crawl VQA datasets from HuggingFace
+  #   web:
+  #     huggingface_token: "hf_"        # Optional. Can be set via 'export HUGGINGFACE_TOKEN="YOUR TOKEN"'
+  #     dataset_limit: 5                # Number of datasets to crawl per keyword (default: 5)
+  #     dataset_score_threshold: 30     # Minimum score for a dataset to be valid (Range: 0~50)
+
+# Base model for evaluation and inference (vLLM for text, VLM for image modality)
+# For image modality, use a VLM model like Qwen/Qwen2-VL-7B-Instruct
 base_model:
-  # Base model path
-  path: Qwen2.5/Qwen2.5-7B
-  # Inference parameters for evaluation
-  inference:
-    temperature: 0.0
-    max_tokens: 1500
-    top_p: 0.95
-    n: 1
-  # Sampling parameters for scoring (pass@n evaluation)
-  scoring:
-    temperature: 1.2
-    n: 4
+  path: Qwen/Qwen2.5-7B   # Text: Qwen/Qwen2.5-7B | Image: Qwen/Qwen3-VL-7B-Instruct
 
-# LLM used throughout the pipeline
+# LLM/VLM used throughout the pipeline (Create .env file to specify base url and api key)
+# For image modality, use a VLM like gpt-4o or claude-3-5-sonnet
 llm:
   provider: openai
-  model: gpt-4o-mini
+  model: gpt-4o           # Text: gpt-4o-mini | Image: gpt-4o (VLM required)
 
-# Answer extraction configuration (HOW to mark final answer)
+# Answer extraction configuration (HOW to mark final answer of the question, refer to GSM8K dataset)
 answer_extraction:
   tag: "####"
   instruction: "Output your final answer after ####"
@@ -100,67 +96,64 @@ answer_extraction:
 # Postprocess for LLMs' responses
 postprocess:
   methods: 
-  - "majority_voting"
+  - majority_voting    # default to majority voting
       
   # Majority voting for quality control of LLM's responses
+  # Uncomment ONE method below: exact_match / semantic_clustering / llm_judge
   majority_voting:
-    # Number of voting
-    n: 4
-    # Method: "exact_match", "semantic_clustering", "llm_judge"
-    method: semantic_clustering
-    # # Exact match settings (only used if method is "exact_match")
+    n: 8    # Number of voting
+
+    # Exact match settings (mostly used for numerical answer)
     # exact_match:
-    #   # For numeric answers, use tolerance instead of strict equality
-    #   numeric_tolerance: 1e-3  # Aligned with Data_Synthesis_RL gsm8k, set to 0 or null for strict string matching
-    # Semantic similarity settings (only used if method is "semantic_clustering")
+    #   numeric_tolerance: 1e-3        # Set to 0 or null for strict string matching
+
+    # Semantic similarity settings (better tolerance of answer output)
     semantic_clustering:
-      model_path: BAAI/bge-small-en-v1.5
-      similarity_threshold: 0.85
-    # # LLM judge settings (only used if method is "llm_judge")
-    # llm_judge:
-    #     temperature: 0.3
+      model_path: BAAI/bge-small-en-v1.5      # Semantic model path
+      similarity_threshold: 0.85   # Similarity threshold to determine majority answer
 
-# Evaluation Configuration
-evaluation:
-  # Batch size for evaluation
-  batch_size: 5
-
-  # Answer comparison configuration (HOW to compare two answers)
-  # Used for both evaluation scoring and majority voting
-  answer_comparison:
-    # Method: "exact_match", "semantic", "llm_judge"
-    method: semantic
-
-    # # Exact match settings (only used if method is "exact_match")
-    # exact_match:
-    #   # For numeric answers, use tolerance instead of strict equality
-    #   numeric_tolerance: 1e-3  # Aligned with Data_Synthesis_RL gsm8k, set to 0 or null for strict string matching
-
-    # Semantic similarity settings (only used if method is "semantic")
-    semantic:
-      model_path: BAAI/bge-small-en-v1.5
-      similarity_threshold: 0.85
-
-    # # LLM judge settings (only used if method is "llm_judge")
+    # LLM judge settings (best choice but cost)
     # llm_judge:
     #   temperature: 0.3
 
-# Rewrite Configuration (Optional)
-rewrite:
-  method: "difficulty_adjust"
-  input_instruction: |
-      The input should be a math word problem that requires multi-step reasoning.
-  output_instruction: |
-      The output should contain reasoning process step by step and a final answer.
+# Evaluation Configuration
+evaluation:
+  # Inference parameters for initial binary evaluation (solved vs unsolved)
+  inference:
+    temperature: 0.0
+    max_tokens: 1500
+    n: 1
 
+  # Sampling parameters for pass@n scoring
+  scoring:
+    temperature: 1.2
+    n: 8
+
+  # Answer comparison configuration (Used for both evaluation scoring and majority voting)
+  # Uncomment ONE method below: exact_match / semantic / llm_judge
+  answer_comparison:
+    # Exact match settings (mostly used for numerical answer)
+    # exact_match:
+    #   numeric_tolerance: 1e-3     # Set to 0 or null for strict string matching
+
+    # Semantic similarity settings (better tolerance of base model output answer)
+    semantic:
+      model_path: BAAI/bge-small-en-v1.5       # Model path for semantic answer comparing
+      similarity_threshold: 0.85    # Semantic similarity threshold to determine same answer
+
+    # LLM judge settings (best choice but cost)
+    # llm_judge:
+    #   temperature: 0.3
+
+# Rewrite Configuration
+# Uncomment ONE method below: difficulty_adjust
+rewrite:
   difficulty_adjust:
     easier_temperature: 0.9
     harder_temperature: 1.1
 
 # Translation Configuration
-# If language is not 'english', you must specify model_path for the translation model
 translation:
   language: english  # Target language: 'english' (no translation), 'arabic', etc.
-  # model_path: "path/to/your/Translator"  
+  # model_path: hammh0a/Hala-1.2B-EN-AR-Translator    # If language is not 'english', you must specify model_path for the translation model
   max_tokens: 256    # Maximum tokens for translation generation
-  batch_size: 1      # Batch size for translation

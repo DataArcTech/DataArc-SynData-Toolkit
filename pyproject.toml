@@ -40,6 +40,9 @@ dependencies = [
     "hatchling>=1.28.0",
 ]
 
+[tool.uv]
+no-build-isolation-package = ['flash-attn', 'setuptools']
+
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple/"
 default = true

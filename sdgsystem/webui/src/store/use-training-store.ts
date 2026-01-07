@@ -76,10 +76,7 @@ export interface TrainingTaskConfig {
       path: string
       name: string
     }
-    reward_model?: {
-      enable: boolean
-      path: string
-    }
+    reward_model_path?: string
   }
 
   trainer: {
@@ -213,10 +210,6 @@ export const GRPO_DEFAULT_CONFIG: TrainingTaskConfig = {
     custom_reward_function: {
       path: '',
       name: '',
-    },
-    reward_model: {
-      enable: false,
-      path: '',
     },
   },
   trainer: {
