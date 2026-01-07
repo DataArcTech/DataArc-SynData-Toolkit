@@ -43,9 +43,9 @@ https://github.com/user-attachments/assets/4b4d5ae4-d274-4971-a3cb-e9f07e841374
 
 ## :notebook: 更新日志
 
-[25/11/17] 🎉我们开源了合成数据平台。
-[25/11/27] 增加了**并行处理模块**，可以大幅度降低合成数据所需时间。
-[25/11/28] 新增合成数据中间结果保存功能，支持**断点续跑**，无需从头重新生成，节省Token消耗。
+[25/11/17] 🎉我们开源了合成数据平台。  
+[25/11/27] 增加了**并行处理模块**，可以大幅度降低合成数据所需时间。  
+[25/11/28] 新增合成数据中间结果保存功能，支持**断点续跑**，无需从头重新生成，节省Token消耗。  
 [25/12/25] 🔥重要更新：
 - **前后端分离架构**：**DataArc SynData Toolkit**现采用完全前后端分离的架构，配备**FastAPI后端**（REST API + SSE实时进度流式推送）和独立的**React**前端，提升可视化、易用性和可扩展性。
 - **基于verl的后训练支持**：引入集成的后训练模块，基于**verl**框架，支持在合成数据上进行**SFT**和**GRPO**的端到端模型训练工作流。
@@ -64,9 +64,9 @@ https://github.com/user-attachments/assets/4b4d5ae4-d274-4971-a3cb-e9f07e841374
 **DataArc SynData Toolkit**的设计旨在以模块化方式运行数据合成流程，允许用户自定义各模块的策略和方法实现。主要组件包括：
 
 - **数据合成**：通过本地合成、huggingface爬取、数据蒸馏等方法合成数据。
-  - 开发者可以继承[BaseTaskConfig](./sdgsystem/configs/sdg.py)和[BaseTaskExecutor](./sdgsystem/tasks/base.py)定制化合成数据的方法
+  - 开发者可以继承[BaseTaskConfig](./sdgsystem/configs/config.py)和[BaseTaskExecutor](./sdgsystem/tasks/base.py)定制化合成数据的方法
 - **数据筛选与改写**：对初步合成的数据，针对待训练模型进行筛选和改写。
-  - 开发者可以继承[BaseRewriteConfig](./sdgsystem/configs/sdg.py)和[BaseRewriter](./sdgsystem/generation/rewriter.py)定制化数据改写方法（或不改写）
+  - 开发者可以继承[BaseRewriteConfig](./sdgsystem/configs/config.py)和[BaseRewriter](./sdgsystem/generation/rewriter.py)定制化数据改写方法（或不改写）
 
 ![dataarc-sdg_pipeline](assets/dataarc-syndata-toolkit_pipeline.png)
 
