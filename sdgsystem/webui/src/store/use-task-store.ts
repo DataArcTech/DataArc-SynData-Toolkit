@@ -20,16 +20,19 @@ export interface TaskConfig {
 export interface TaskInfo {
   name: string
   domain: string
-  task_type: string
   task_instruction: string
   input_instruction: string
   output_instruction: string
   num_samples: number
   batch_size: number
   demo_examples_path: string
-  local: LocalConfig
-  distill: DistillConfig
-  web: WebConfig
+  text: TextModalityConfig
+}
+
+export interface TextModalityConfig {
+  local?: LocalConfig | null
+  web?: WebConfig | null
+  distill?: DistillConfig | null
 }
 
 export interface LocalConfig {
@@ -156,13 +159,13 @@ export interface SSEEventData {
   task_type: string
   task_name: string
   status:
-    | 'pending'
-    | 'running'
-    | 'generation_complete'
-    | 'complete'
-    | 'completed'
-    | 'error'
-    | 'failed'
+  | 'pending'
+  | 'running'
+  | 'generation_complete'
+  | 'complete'
+  | 'completed'
+  | 'error'
+  | 'failed'
   created_at: string
   updated_at: string
   phase: SSEPhase | null
@@ -267,45 +270,25 @@ interface TaskState {
 const DEFAULT_CONFIG: TaskConfig = {
   device: 'cuda:0',
   n_workers: 2,
-  output_dir: '.output/',
+  output_dir: './outputs',
   export_format: 'jsonl',
   task: {
     name: '',
     domain: '',
-    task_type: 'local',
     task_instruction: '',
     input_instruction: '',
     output_instruction: '',
     num_samples: 10,
     batch_size: 5,
     demo_examples_path: '',
-    local: {
-      parsing: {
-        method: 'mineru',
-      },
-      retrieval: {
-        passages_dir: './dataset/passages',
-        method: 'bm25',
-        top_k: 100,
-      },
-      generation: {
-        temperature: 1.0,
-      },
-    },
-    distill: {
-      temperature: 1.0,
-    },
-    web: {
-      huggingface_token: '',
-      dataset_score_threshold: 30,
-    },
+    text: {},
   },
   base_model: {
     provider: 'local',
     path: '',
   },
   llm: {
-    provider: '',
+    provider: 'openai',
     model: '',
     api_key: '',
     base_url: '',
@@ -318,12 +301,12 @@ const DEFAULT_CONFIG: TaskConfig = {
     methods: ['majority_voting'],
     majority_voting: {
       n: 8,
-      method: '',
+      method: 'exact_match',
     },
   },
   evaluation: {
     answer_comparison: {
-      method: '',
+      method: 'semantic',
     },
   },
   rewrite: {

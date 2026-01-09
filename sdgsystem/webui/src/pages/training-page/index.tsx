@@ -21,8 +21,36 @@ export default function TrainingPage() {
       try {
         const jobState = JSON.parse(storedJobState)
         setJobId(jobState.jobId)
-        setActiveTab('export')
-        message.info('Reconnecting to training task...')
+
+        // Restore training status if available
+        if (jobState.status) {
+          setTrainingStatus(jobState.status)
+        }
+
+        // Auto-switch to export tab if task is running or completed
+        // For error/cancelled tasks, stay on config tab
+        if (jobState.status === 'running') {
+          setActiveTab('export')
+          message.info('Reconnecting to training task...')
+        } else if (jobState.status === 'completed') {
+          setActiveTab('export')
+          message.success(
+            `Training task completed: ${jobState.experimentName || 'Untitled'}. You can now export the model.`,
+            5,
+          )
+        } else {
+          // error or cancelled - stay on config tab
+          const statusText: Record<string, string> = {
+            error: 'failed',
+            cancelled: 'cancelled',
+          }
+          const displayStatus = statusText[jobState.status] || 'previous'
+
+          message.info(
+            `Found ${displayStatus} task: ${jobState.experimentName || 'Untitled'}. Switch to "Training & Export" tab to view details.`,
+            5,
+          )
+        }
       } catch (error) {
         console.error('Failed to parse stored job state:', error)
         localStorage.removeItem('training_job_state')
@@ -42,7 +70,11 @@ export default function TrainingPage() {
           try {
             const jobState = JSON.parse(e.newValue)
             setJobId(jobState.jobId)
-            setActiveTab('export')
+
+            // Auto-switch to export tab if task is running or completed
+            if (jobState.status === 'running' || jobState.status === 'completed') {
+              setActiveTab('export')
+            }
           } catch (error) {
             console.error('Failed to parse storage event:', error)
           }

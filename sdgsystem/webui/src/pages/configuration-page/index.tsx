@@ -46,10 +46,15 @@ export default function ConfigurationPage() {
 
   const language = Form.useWatch('language', form) || 'english'
 
+  // Determine initial task type based on which config is populated
   // biome-ignore lint/correctness/useExhaustiveDependencies: Only initialize on mount
   useEffect(() => {
-    if (config.task.task_type) {
-      setTaskType(config.task.task_type as TaskType)
+    if (config.task.text.web) {
+      setTaskType('web')
+    } else if (config.task.text.distill) {
+      setTaskType('distill')
+    } else {
+      setTaskType('local')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -66,9 +71,9 @@ export default function ConfigurationPage() {
       domain: config.task.domain || '',
       inputInstruction: config.task.input_instruction || '',
       outputInstruction: config.task.output_instruction || '',
-      parserMethod: config.task.local.parsing.method || '',
-      huggingfaceToken: config.task.web.huggingface_token || '',
-      datasetScoreThreshold: config.task.web.dataset_score_threshold || 30,
+      parserMethod: config.task.text.local?.parsing.method || '',
+      huggingfaceToken: config.task.text.web?.huggingface_token || '',
+      datasetScoreThreshold: config.task.text.web?.dataset_score_threshold || 30,
       arabicTranslatorModelPath: config.translation.model_path || '',
     }
 
@@ -169,11 +174,14 @@ export default function ConfigurationPage() {
     if (allValues.parserMethod !== undefined) {
       updates.task = {
         ...(updates.task || config.task),
-        local: {
-          ...config.task.local,
-          parsing: {
-            ...config.task.local.parsing,
-            method: allValues.parserMethod as string,
+        text: {
+          ...(updates.task?.text || config.task.text),
+          local: {
+            ...config.task.text.local,
+            parsing: {
+              ...config.task.text.local?.parsing,
+              method: allValues.parserMethod as string,
+            },
           },
         },
       }
@@ -182,9 +190,12 @@ export default function ConfigurationPage() {
     if (allValues.huggingfaceToken !== undefined) {
       updates.task = {
         ...(updates.task || config.task),
-        web: {
-          ...config.task.web,
-          huggingface_token: allValues.huggingfaceToken as string,
+        text: {
+          ...(updates.task?.text || config.task.text),
+          web: {
+            ...config.task.text.web,
+            huggingface_token: allValues.huggingfaceToken as string,
+          },
         },
       }
     }
@@ -192,9 +203,12 @@ export default function ConfigurationPage() {
     if (allValues.datasetScoreThreshold !== undefined) {
       updates.task = {
         ...(updates.task || config.task),
-        web: {
-          ...(updates.task?.web || config.task.web),
-          dataset_score_threshold: Number(allValues.datasetScoreThreshold) || 30,
+        text: {
+          ...(updates.task?.text || config.task.text),
+          web: {
+            ...(updates.task?.text?.web || config.task.text.web),
+            dataset_score_threshold: Number(allValues.datasetScoreThreshold) || 30,
+          },
         },
       }
     }
@@ -204,12 +218,33 @@ export default function ConfigurationPage() {
     }
   }
 
+  // Update task config based on selected task type (local/web/distill)
+  // Only include the selected task type's config, omit the others entirely
   // biome-ignore lint/correctness/useExhaustiveDependencies: Only update on taskType change
   useEffect(() => {
+    const textConfig: any = {}
+
+    if (taskType === 'local') {
+      textConfig.local = config.task.text.local || {
+        parsing: { method: 'mineru' },
+        retrieval: { passages_dir: './dataset/passages', method: 'bm25', top_k: 100 },
+        generation: { temperature: 1.0 },
+      }
+    } else if (taskType === 'web') {
+      textConfig.web = config.task.text.web || {
+        huggingface_token: '',
+        dataset_score_threshold: 30,
+      }
+    } else if (taskType === 'distill') {
+      textConfig.distill = config.task.text.distill || {
+        temperature: 1.0,
+      }
+    }
+
     setTaskConfig({
       task: {
         ...config.task,
-        task_type: taskType,
+        text: textConfig,
       },
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -405,14 +440,15 @@ export default function ConfigurationPage() {
         return
       }
 
-      // 3. Collect all files from form
-      const allFiles: File[] = []
+      // 3. Collect files separately
+      const documents: File[] = []
+      const demoExamples: File[] = []
 
       // From uploadDocuments field
       if (formValues.uploadDocuments && Array.isArray(formValues.uploadDocuments)) {
         formValues.uploadDocuments.forEach((uploadFile: any) => {
           if (uploadFile.originFileObj) {
-            allFiles.push(uploadFile.originFileObj)
+            documents.push(uploadFile.originFileObj)
           }
         })
       }
@@ -421,7 +457,7 @@ export default function ConfigurationPage() {
       if (formValues.demoExamples && Array.isArray(formValues.demoExamples)) {
         formValues.demoExamples.forEach((uploadFile: any) => {
           if (uploadFile.originFileObj) {
-            allFiles.push(uploadFile.originFileObj)
+            demoExamples.push(uploadFile.originFileObj)
           }
         })
       }
@@ -435,9 +471,11 @@ export default function ConfigurationPage() {
       setIsGenerating(true)
 
       // Create job with config and files
+      // Config already contains only the selected task type from useEffect
       const response = await taskApi.createJob({
-        config,
-        files: allFiles.length > 0 ? allFiles : undefined,
+        config: config,
+        documents: documents.length > 0 ? documents : undefined,
+        demo_examples: demoExamples.length > 0 ? demoExamples : undefined,
       })
       const jobId = response.job_id
 
@@ -455,8 +493,20 @@ export default function ConfigurationPage() {
       // Navigate to generate page immediately
       navigate('/generate')
     } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err))
-      message.error(`Failed to start task: ${error.message}`)
+      // Handle form validation errors
+      if (err && typeof err === 'object' && 'errorFields' in err) {
+        // Ant Design form validation error
+        const errorFields = (err as any).errorFields
+        if (errorFields && errorFields.length > 0) {
+          const firstError = errorFields[0]
+          const errorMessage = firstError.errors?.[0] || 'Please complete required fields'
+          message.error(errorMessage)
+        }
+      } else {
+        // Other errors
+        const error = err instanceof Error ? err : new Error(String(err))
+        message.error(`Failed to start task: ${error.message}`)
+      }
       setIsGenerating(false)
     }
   }
@@ -522,7 +572,7 @@ export default function ConfigurationPage() {
                     color: token.colorTextTertiary,
                   }}
                 >
-                  Upload JSONL file(s) to serve as a generation example.
+                  Upload a JSONL file to serve as a generation example.
                 </div>
               }
               getValueFromEvent={e => {
@@ -532,7 +582,7 @@ export default function ConfigurationPage() {
                 return e?.fileList
               }}
             >
-              <CustomUpload multiple accept=".jsonl" columns={2} />
+              <CustomUpload accept=".jsonl" columns={1} maxCount={1} />
             </Form.Item>
           </>
         )
@@ -579,7 +629,7 @@ export default function ConfigurationPage() {
                   color: token.colorTextTertiary,
                 }}
               >
-                Upload JSONL file(s) to serve as a generation example.
+                Upload a JSONL file to serve as a generation example.
               </div>
             }
             getValueFromEvent={e => {
@@ -589,7 +639,7 @@ export default function ConfigurationPage() {
               return e?.fileList
             }}
           >
-            <CustomUpload multiple accept=".jsonl" columns={2} />
+            <CustomUpload accept=".jsonl" columns={1} maxCount={1} />
           </Form.Item>
         )
       default:
@@ -701,7 +751,7 @@ export default function ConfigurationPage() {
                   label="Task Instruction"
                   rules={[{ required: true, message: 'Please enter Task Instruction' }]}
                 >
-                  <TextArea placeholder="What kind of data to generate?" rows={4} size="large" />
+                  <TextArea placeholder="Define the type, structure, and requirements of the dataset to be generated, including the task objective, input–output format, and quality constraints." rows={4} size="large" />
                 </Form.Item>
 
                 {/* Number of Examples and Language in one row */}
@@ -800,15 +850,15 @@ export default function ConfigurationPage() {
                       onValuesChange={handleValuesChange}
                     >
                       <Form.Item name="domain" label="Domain">
-                        <Input placeholder="Enter domain" size="large" />
+                        <Input placeholder="Enter Domain Keywords" size="large" />
                       </Form.Item>
 
                       <Form.Item name="inputInstruction" label="Input Instruction">
-                        <TextArea placeholder="Enter input instruction" rows={4} size="large" />
+                        <TextArea placeholder="Describe the format of the input field in target dataset" rows={4} size="large" />
                       </Form.Item>
 
                       <Form.Item name="outputInstruction" label="Output Instruction">
-                        <TextArea placeholder="Enter output instruction" rows={4} size="large" />
+                        <TextArea placeholder="Describe the format of the output field in target dataset" rows={4} size="large" />
                       </Form.Item>
                     </Form>
                   ),

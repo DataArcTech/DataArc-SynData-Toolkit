@@ -146,16 +146,16 @@ async def create_job(
 
     if text_config:
         if text_config.get("local"):
-            task_type = "text.local"
+            task_type = "local"
         elif text_config.get("web"):
-            task_type = "text.web"
+            task_type = "web"
         elif text_config.get("distill"):
-            task_type = "text.distill"
+            task_type = "distill"
     elif image_config:
         if image_config.get("local"):
-            task_type = "image.local"
+            task_type = "local"
         elif image_config.get("web"):
-            task_type = "image.web"
+            task_type = "web"
 
     reporter = sdg_job_manager.create_job(task_type=task_type, task_name=task_name)
 

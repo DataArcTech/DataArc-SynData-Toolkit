@@ -58,7 +58,7 @@ class WebTaskExecutor(BaseTaskExecutor):
             for task_dataset in task_datasets:
                 dataset_id = task_dataset.id
                 dataset_splits = self.crawler.get_splits(dataset_id)
-                logger.info(f"Found dataset: {dataset_id}, splits: {dataset_splits}")
+                logger.info(f"Found dataset: {dataset_id}")
 
                 datasets.append({
                     "keyword": task_keyword,

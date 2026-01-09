@@ -25,7 +25,7 @@ class HFCrawler:
             datasets = list(
                 self.api.list_datasets(
                     search=query,
-                    filter="format:json",
+                    filter="modality:text",
                     sort="downloads",
                     direction=-1  # descending order (most downloads first)
                 )

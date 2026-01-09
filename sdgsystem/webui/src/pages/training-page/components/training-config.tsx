@@ -205,7 +205,7 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
       dataSource: trainingConfig.reward?.data_source,
       customFunctionPath: trainingConfig.reward?.custom_reward_function?.path,
       customFunctionName: trainingConfig.reward?.custom_reward_function?.name,
-      rewardModelPath: trainingConfig.reward?.reward_model_path,
+      rewardModelPath: trainingConfig.reward?.reward_model?.path,
     }
     form.setFieldsValue(values)
 
@@ -447,7 +447,13 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
     }
     if (changedValues.rewardModelPath !== undefined) {
       setTrainingConfig({
-        reward: { ...trainingConfig.reward, reward_model_path: changedValues.rewardModelPath },
+        reward: {
+          ...trainingConfig.reward,
+          reward_model: {
+            enable: !!changedValues.rewardModelPath,
+            path: changedValues.rewardModelPath || '',
+          },
+        },
       })
       return
     }
@@ -576,7 +582,10 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
           }
         } else if (rewardMode === 'Reward Model' && values.rewardModelPath) {
           apiConfig.reward = {
-            reward_model_path: values.rewardModelPath,
+            reward_model: {
+              enable: true,
+              path: values.rewardModelPath,
+            },
           }
         }
 
@@ -628,11 +637,16 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
         throw new Error('No job_id returned, cannot start training')
       }
 
-      // Save job_id to localStorage for persistence across page refreshes
+      // Save job_id and task info to localStorage for persistence across page refreshes
       const jobState = {
         jobId: data.job_id,
         createdAt: Date.now(),
         taskName: trainingConfig.trainer.experiment_name || 'Training Task',
+        experimentName: trainingConfig.trainer.experiment_name || 'Untitled Task',
+        method: trainingConfig.method,
+        modelPath: trainingConfig.model.path,
+        wandbUrl: null,
+        status: 'running' as const,
       }
       localStorage.setItem('training_job_state', JSON.stringify(jobState))
 
@@ -803,7 +817,7 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
                       }}
                     >
                       <span style={{ color: token.colorError }}>*</span>
-                      <span>Validation Examples</span>
+                      <span>Validation Data</span>
                     </span>
                     <span style={{ fontSize: token.fontSizeSM, color: token.colorTextTertiary }}>
                       JSONL files for validation or demonstration.
@@ -1080,7 +1094,7 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
                                       },
                                     ]}
                                   >
-                                    <Input placeholder="e.g., compute_reward" size="large" />
+                                    <Input placeholder="compute_score" size="large" />
                                   </Form.Item>
                                 </>
                               )
@@ -1245,76 +1259,28 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
                             <div className="mb-4 grid grid-cols-2 gap-x-4">
                               <Form.Item
                                 name="truncation"
-                                label={
-                                  <span>
-                                    Truncation{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Truncation"
                               >
                                 <Input placeholder="right" size="large" />
                               </Form.Item>
 
                               <Form.Item
                                 name="maxLength"
-                                label={
-                                  <span>
-                                    Max Length{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Max Length"
                               >
                                 <Input placeholder="2048" size="large" />
                               </Form.Item>
 
                               <Form.Item
                                 name="microBatchSize"
-                                label={
-                                  <span>
-                                    Micro Batch Size{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Micro Batch Size"
                               >
                                 <Input placeholder="1" size="large" />
                               </Form.Item>
 
                               <Form.Item
                                 name="numNodes"
-                                label={
-                                  <span>
-                                    Number of Nodes{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Number of Nodes"
                               >
                                 <NumberStepper min={1} />
                               </Form.Item>
@@ -1325,95 +1291,35 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
                             <div className="mb-4 grid grid-cols-2 gap-x-4">
                               <Form.Item
                                 name="rolloutGpuMemoryUtil"
-                                label={
-                                  <span>
-                                    Rollout GPU Memory Util{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Rollout GPU Memory Util"
                               >
                                 <Input placeholder="0.9" size="large" />
                               </Form.Item>
 
                               <Form.Item
                                 name="rolloutN"
-                                label={
-                                  <span>
-                                    Rollout N{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Rollout N"
                               >
                                 <NumberStepper min={1} />
                               </Form.Item>
 
                               <Form.Item
                                 name="maxPromptLength"
-                                label={
-                                  <span>
-                                    Max Prompt Length{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Max Prompt Length"
                               >
                                 <Input placeholder="1024" size="large" />
                               </Form.Item>
 
                               <Form.Item
                                 name="maxResponseLength"
-                                label={
-                                  <span>
-                                    Max Response Length{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Max Response Length"
                               >
                                 <Input placeholder="1024" size="large" />
                               </Form.Item>
 
                               <Form.Item
                                 name="saveFrequency"
-                                label={
-                                  <span>
-                                    Save Frequency (steps){' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Save Frequency (steps)"
                               >
                                 <InputNumber
                                   placeholder="100"
@@ -1424,19 +1330,7 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
 
                               <Form.Item
                                 name="testFrequency"
-                                label={
-                                  <span>
-                                    Test Frequency (steps){' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Test Frequency (steps)"
                               >
                                 <InputNumber
                                   placeholder="100"
@@ -1447,19 +1341,7 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
 
                               <Form.Item
                                 name="ppoMiniBatchSize"
-                                label={
-                                  <span>
-                                    PPO Mini Batch Size{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="PPO Mini Batch Size"
                                 dependencies={['trainBatchSize']}
                                 rules={[
                                   ({ getFieldValue }) => ({
@@ -1485,38 +1367,14 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
 
                               <Form.Item
                                 name="ppoMicroBatchSize"
-                                label={
-                                  <span>
-                                    PPO Micro Batch Size{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="PPO Micro Batch Size"
                               >
                                 <Input placeholder="1" size="large" />
                               </Form.Item>
 
                               <Form.Item
                                 name="useKLLoss"
-                                label={
-                                  <span>
-                                    Use KL Loss{' '}
-                                    <span
-                                      style={{
-                                        color: token.colorTextTertiary,
-                                        fontWeight: 'normal',
-                                      }}
-                                    >
-                                      (Optional)
-                                    </span>
-                                  </span>
-                                }
+                                label="Use KL Loss"
                                 valuePropName="checked"
                               >
                                 <Switch className="rectangular-switch" />
@@ -1532,19 +1390,7 @@ export default function TrainingConfig({ onStartTraining }: TrainingConfigProps)
                                   getFieldValue('useKLLoss') === true ? (
                                     <Form.Item
                                       name="klLossCoefficient"
-                                      label={
-                                        <span>
-                                          KL Loss Coefficient{' '}
-                                          <span
-                                            style={{
-                                              color: token.colorTextTertiary,
-                                              fontWeight: 'normal',
-                                            }}
-                                          >
-                                            (Optional)
-                                          </span>
-                                        </span>
-                                      }
+                                      label="KL Loss Coefficient"
                                     >
                                       <InputNumber
                                         placeholder="0.1"

@@ -103,19 +103,90 @@ export function StepItem({ title, description, status, stats, result }: StepItem
           </Text>
         )}
 
-        {status === 'success' &&
-          result?.datasets_to_use &&
-          Array.isArray(result.datasets_to_use) && (
+        {status === 'success' && result?.datasets && Array.isArray(result.datasets) && (
+          <Flex vertical gap={token.marginXXS}>
             <Text
               type="secondary"
               style={{
                 fontSize: token.fontSizeSM,
-                wordBreak: 'break-word',
-                whiteSpace: 'normal',
+                fontWeight: 500,
               }}
             >
-              Datasets used: {result.datasets_to_use.join(', ')}
+              Datasets found ({result.datasets.length}):
             </Text>
+            <Flex wrap="wrap" gap={token.marginXXS}>
+              {result.datasets.map((d: any, idx: number) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: `${token.paddingXXS}px ${token.paddingXS}px`,
+                    backgroundColor: 'transparent',
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    borderRadius: token.borderRadiusSM,
+                    fontSize: token.fontSizeSM,
+                    color: token.colorTextSecondary,
+                  }}
+                >
+                  {typeof d === 'string' ? d : d.id}
+                </div>
+              ))}
+            </Flex>
+          </Flex>
+        )}
+
+        {status === 'success' &&
+          result?.datasets_to_use &&
+          Array.isArray(result.datasets_to_use) && (
+            <Flex vertical gap={token.marginXXS}>
+              <Text
+                type="secondary"
+                style={{
+                  fontSize: token.fontSizeSM,
+                  fontWeight: 500,
+                }}
+              >
+                Datasets used ({result.datasets_to_use.length}):
+              </Text>
+              <Flex wrap="wrap" gap={token.marginXXS}>
+                {result.datasets_to_use.map((d: any, idx: number) => {
+                  const datasetId = typeof d === 'string' ? d : d.id
+                  const samples = typeof d === 'string' ? null : d.samples_to_extract || d.samples
+
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: `${token.paddingXXS}px ${token.paddingXS}px`,
+                        backgroundColor: 'transparent',
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        borderRadius: token.borderRadiusSM,
+                        fontSize: token.fontSizeSM,
+                        color: token.colorTextSecondary,
+                        display: 'flex',
+                        gap: token.marginXXS,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span>{datasetId}</span>
+                      {samples !== null && (
+                        <span
+                          style={{
+                            padding: `0 ${token.paddingXXS}px`,
+                            backgroundColor: token.colorPrimaryBg,
+                            color: token.colorPrimary,
+                            borderRadius: token.borderRadiusSM,
+                            fontSize: token.fontSizeSM - 1,
+                            fontWeight: 500,
+                          }}
+                        >
+                          {samples} samples
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </Flex>
+            </Flex>
           )}
 
         {stats && (
