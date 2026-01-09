@@ -1,14 +1,33 @@
+<div align="center">
+
 # DataArc SynData Toolkit
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Framework: uv](https://img.shields.io/badge/Package_Manager-uv-42b983.svg)](https://github.com/astral-sh/uv)
 [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-ffa000.svg)](https://docs.pydantic.dev/)
 
+<p>
+  <a href="https://discord.gg/zuGewCB5">
+    <img src="https://img.shields.io/static/v1?style=for-the-badge&message=Community&color=7289da&logo=discord&logoColor=white&label=Discord&labelColor=1a1a2e">
+  </a>
+  <a href="https://github.com/DataArcTech/DataArc-SynData-Toolkit/issues/2">
+    <img src="https://img.shields.io/static/v1?style=for-the-badge&message=Group&color=07c160&logo=wechat&logoColor=white&label=WeChat&labelColor=1a1a2e">
+  </a>
+  <a href="https://x.com/DataArcTech">
+    <img src="https://img.shields.io/static/v1?style=for-the-badge&message=Home&color=000000&logo=x&logoColor=white&label=&labelColor=1a1a2e">
+  </a>
+  <a href="https://www.linkedin.com/company/dataarctech/">
+    <img src="https://img.shields.io/static/v1?style=for-the-badge&message=Home&color=0077B5&logo=linkedin&logoColor=white&label=LinkedIn&labelColor=1a1a2e">
+  </a>
+</p>
+
 *一个模块化、高度易用的合成数据生成工具集，支持多来源、多语言的数据合成。*
 
 ### 使用零代码[命令行](#rocket-快速开始)与[可视化界面](#desktop_computer-可视化界面)，轻松合成大模型训练数据！
 
 :book:[ [English](./README.md) | **中文** ]
+
+</div>
 
 ## :dart: 项目概述
 
