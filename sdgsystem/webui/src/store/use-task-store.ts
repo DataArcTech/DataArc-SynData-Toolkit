@@ -61,7 +61,7 @@ export interface DistillConfig {
 
 export interface WebConfig {
   huggingface_token: string
-  dataset_score_threshold: number
+  dataset_limit?: number
 }
 
 export interface BaseModelConfig {

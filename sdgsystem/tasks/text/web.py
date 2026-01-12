@@ -1,4 +1,5 @@
 import logging
+import re
 from tqdm import tqdm
 from typing import List, Dict, Optional
 
@@ -27,18 +28,45 @@ class WebTaskExecutor(BaseTaskExecutor):
         self.formatter = Formatter(llm)
 
     def extract_keywords(self, task_definition: str) -> List[str]:
-        """Extract domain keywords using LLM based on task instruction."""
-        domain = self.config.domain
+        """
+        Extract keywords for HuggingFace dataset search with domain-first priority.
 
-        keywords = self.keyword_extractor.extract_keywords(
+        Strategy:
+        1. Domain field (if provided) - primary user-controlled keyword
+        2. LLM extraction from task_instruction - supplementary keywords for breadth
+        3. Search with ALL keywords to maximize dataset discovery
+        """
+        domain = self.config.domain
+        keywords = []
+
+        # Priority 1: Use domain as primary keywords if provided
+        # Split by comma or space to allow multiple keywords (e.g., "mathematics, gsm8k" or "mathematics gsm8k")
+        if domain:
+            domain_keywords = [kw.strip() for kw in re.split(r'[,\s]+', domain) if kw.strip()]
+            keywords.extend(domain_keywords)
+            logger.info(f"Using domain keywords: {domain_keywords}")
+
+        # Priority 2: Extract additional keywords from task instruction
+        llm_keywords = self.keyword_extractor.extract_keywords(
             task_instruction=task_definition,
             for_huggingface=True
         )
 
-        # if domain is non-empty and not already in keywords, add it
-        if domain and domain not in keywords:
-            keywords.append(domain)
+        # Add LLM keywords, avoiding duplicates
+        for kw in llm_keywords:
+            if kw not in keywords:
+                keywords.append(kw)
 
+        if llm_keywords:
+            logger.info(f"LLM extracted supplementary keywords: {llm_keywords}")
+
+        if not keywords:
+            raise ValueError(
+                "No keywords available for dataset search. "
+                "Please provide 'domain' field or ensure task_instruction is descriptive enough for keyword extraction."
+            )
+
+        logger.info(f"Final search keywords: {keywords}")
         return keywords
 
     def search_datasets(self) -> List[Dict]:
@@ -120,8 +148,8 @@ class WebTaskExecutor(BaseTaskExecutor):
 
     def validate_datasets(self, datasets: List[Dict]) -> List[Dict]:
         """
-        Phase 1: Probe all datasets and filter by score threshold.
-        Returns list of valid datasets sorted by score (highest first).
+        Phase 1: Probe all datasets and score them.
+        Returns list of scored datasets sorted by score (highest first).
         """
         scored_datasets = []
         for dataset in tqdm(datasets, desc="Validating datasets", unit="dataset"):
@@ -132,45 +160,49 @@ class WebTaskExecutor(BaseTaskExecutor):
         # Sort all scored datasets by score (highest first)
         scored_datasets.sort(key=lambda x: x["overall_score"], reverse=True)
 
-        # Separate into above and below threshold
-        above_threshold = [d for d in scored_datasets if d["overall_score"] >= self.config.dataset_score_threshold]
-        below_threshold = [d for d in scored_datasets if d["overall_score"] < self.config.dataset_score_threshold]
+        logger.info(f"Validated: {len(scored_datasets)} datasets with scores")
 
-        # Return both lists - calculate_distribution will decide how many to use
-        valid_datasets = above_threshold
-        fallback_datasets = below_threshold
+        return scored_datasets
 
-        logger.info(f"Validated: {len(valid_datasets)} valid, {len(fallback_datasets)} fallback datasets")
-
-        return valid_datasets, fallback_datasets
-
-    def calculate_distribution(self, valid_datasets: List[Dict], fallback_datasets: List[Dict], num_samples: int) -> List[Dict]:
+    def calculate_distribution(self, scored_datasets: List[Dict], num_samples: int) -> List[Dict]:
         """
         Phase 2: Calculate how many samples to extract from each dataset.
-        Distributes num_samples evenly across valid datasets first.
-        If valid datasets cannot provide enough rows, uses fallback datasets to fill the gap.
+        Uses sequential score-based approach: extract from highest-scored datasets first
+        until we have enough samples. This ensures maximum quality.
+
+        Args:
+            scored_datasets: All datasets sorted by score (highest first)
+            num_samples: Total number of samples needed
+
+        Returns:
+            List of datasets with samples_to_extract field set
         """
-        all_datasets = valid_datasets.copy()
-
-        if not all_datasets:
-            logger.warning("No valid datasets available. Using fallback datasets.")
-            all_datasets = fallback_datasets.copy()
-
-        if not all_datasets:
+        if not scored_datasets:
             return []
 
-        # Initial distribution
-        n_datasets = len(all_datasets)
-        base_count = num_samples // n_datasets
-        remainder = num_samples % n_datasets
+        result = []
+        remaining = num_samples
 
-        for i, dataset in enumerate(all_datasets):
-            # Higher scored datasets (earlier in sorted list) get remainder
-            dataset["samples_to_extract"] = base_count + (1 if i < remainder else 0)
+        for dataset in scored_datasets:
+            if remaining <= 0:
+                break
 
-        logger.info(f"Distribution: {len(all_datasets)} datasets, target {num_samples} samples")
+            # Get available rows from dataset
+            available = dataset.get("num_rows", float('inf'))
+            to_extract = min(remaining, available)
 
-        return all_datasets
+            dataset["samples_to_extract"] = to_extract
+            result.append(dataset)
+            remaining -= to_extract
+
+            logger.info(f"Will extract {to_extract} samples from {dataset['id']} (score: {dataset['overall_score']})")
+
+        if remaining > 0:
+            logger.warning(f"Could not fulfill request: {remaining} samples still needed after exhausting all datasets")
+
+        logger.info(f"Distribution: {len(result)} datasets selected, {num_samples - remaining}/{num_samples} samples available")
+
+        return result
 
     def extract_and_format(self, dataset: Dict) -> List[Dict]:
         """
@@ -256,14 +288,14 @@ class WebTaskExecutor(BaseTaskExecutor):
         if reporter:
             reporter.start_step(
                 "validating", "Validating Datasets",
-                message="Probing datasets with sample data...",
+                message="Probing datasets and scoring quality...",
                 total=len(datasets),
                 unit="datasets"
             )
 
-        valid_datasets, fallback_datasets = self.validate_datasets(datasets)
+        scored_datasets = self.validate_datasets(datasets)
 
-        if not valid_datasets and not fallback_datasets:
+        if not scored_datasets:
             error_msg = (
                 "No valid datasets found after probing. "
                 "All datasets failed validation (missing input/output fields or empty values)."
@@ -271,17 +303,14 @@ class WebTaskExecutor(BaseTaskExecutor):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Calculate distribution
-        datasets_to_use = self.calculate_distribution(valid_datasets, fallback_datasets, self.config.num_samples)
+        # Calculate distribution using sequential score-based approach
+        datasets_to_use = self.calculate_distribution(scored_datasets, self.config.num_samples)
 
         if reporter:
             reporter.complete_step({
-                "message": f"Found {len(valid_datasets)} valid datasets, {len(fallback_datasets)} fallback",
-                "valid_count": len(valid_datasets),
-                "fallback_count": len(fallback_datasets),
-                "valid_datasets": [{"id": d["id"], "score": d["overall_score"]} for d in valid_datasets],
-                "fallback_datasets": [{"id": d["id"], "score": d["overall_score"]} for d in fallback_datasets],
-                "datasets_to_use": [{"id": d["id"], "samples_to_extract": d["samples_to_extract"]} for d in datasets_to_use]
+                "message": f"Validated {len(scored_datasets)} datasets, using top {len(datasets_to_use)}",
+                "total_datasets": len(scored_datasets),
+                "datasets_to_use": [{"id": d["id"], "score": d["overall_score"], "samples_to_extract": d["samples_to_extract"]} for d in datasets_to_use]
             })
 
         # Extract and format samples
@@ -297,7 +326,7 @@ class WebTaskExecutor(BaseTaskExecutor):
         for idx, dataset in enumerate(tqdm(datasets_to_use, desc="Extracting samples", unit="dataset")):
             samples = self.extract_and_format(dataset)
             all_samples.extend(samples)
-            logger.info(f"Extracted {len(samples)} samples from {dataset['id']}")
+            logger.info(f"Extracted {len(samples)} samples from {dataset['id']} (score: {dataset['overall_score']})")
 
             if reporter:
                 reporter.update_step(
@@ -307,43 +336,11 @@ class WebTaskExecutor(BaseTaskExecutor):
                     current_item_index=idx
                 )
 
-        # Check if we need fallback datasets to reach num_samples
-        if len(all_samples) < self.config.num_samples and fallback_datasets:
-            remaining = self.config.num_samples - len(all_samples)
-            logger.warning(f"Only extracted {len(all_samples)}/{self.config.num_samples} samples from valid datasets.")
-            logger.warning(f"Using fallback datasets to extract {remaining} more samples.")
-
-            if reporter:
-                reporter.update_step(message=f"Using fallback datasets for {remaining} more samples...")
-
-            # Use fallback datasets to fill the gap
-            fallback_used = []
-            for dataset in fallback_datasets:
-                if len(all_samples) >= self.config.num_samples:
-                    break
-
-                # Calculate how many samples to extract from this fallback dataset
-                needed = self.config.num_samples - len(all_samples)
-                dataset["samples_to_extract"] = needed
-                fallback_used.append(dataset)
-
-                samples = self.extract_and_format(dataset)
-                all_samples.extend(samples)
-                logger.info(f"Extracted {len(samples)} samples from fallback {dataset['id']}")
-
-                if reporter:
-                    reporter.update_step(
-                        message=f"Extracted from fallback {dataset['id']}",
-                        completed=len(datasets_to_use) + len(fallback_used)
-                    )
-
-            if fallback_used:
-                logger.info(f"Used {len(fallback_used)} fallback datasets")
-
         if reporter:
             reporter.complete_step({
-                "message": f"Extracted {len(all_samples)} samples",
-                "samples_extracted": len(all_samples)
+                "message": f"Extracted {len(all_samples)} samples from {len(datasets_to_use)} datasets",
+                "samples_extracted": len(all_samples),
+                "datasets_used": len(datasets_to_use)
             })
 
         # Build final dataset

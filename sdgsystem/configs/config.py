@@ -92,7 +92,6 @@ class TextWebConfig(BaseTaskConfig):
     """Configuration for text.web - HuggingFace source"""
     huggingface_token: str = Field(default=os.environ.get("HUGGINGFACE_TOKEN", None), description="huggingface token")
     dataset_limit: int = Field(default=DEFAULT_WEB_DATASET_LIMIT, gt=0, description="number of datasets to crawl per keyword")
-    dataset_score_threshold: int = Field(default=30, ge=0, description="minimum overall score (sum of 5 criteria) for a dataset to be valid")
 
     @classmethod
     def from_dict(cls, config: Dict) -> "TextWebConfig":
@@ -167,7 +166,6 @@ class ImageWebConfig(BaseTaskConfig):
     """
     huggingface_token: str = Field(default=os.environ.get("HUGGINGFACE_TOKEN", None), description="huggingface token")
     dataset_limit: int = Field(default=1, gt=0, description="number of datasets to crawl per keyword")
-    dataset_score_threshold: int = Field(default=30, ge=0, description="minimum overall score (sum of 5 criteria) for a dataset to be valid")
     output_dir: str = Field(default=None, description="Output directory for images (injected from global config)")
 
     @classmethod

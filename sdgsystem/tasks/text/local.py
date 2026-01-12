@@ -1,5 +1,6 @@
 import random
 import logging
+import re
 from pathlib import Path
 from typing import List, Dict
 
@@ -43,9 +44,12 @@ class LocalTaskExecutor(BaseTaskExecutor):
             usage_counter=usage_counter
         )
 
-        # if domain is non-empty and not already in keywords, add it
-        if domain and domain not in keywords:
-            keywords.append(domain)
+        # Add domain keywords (split by comma or space) if not already in keywords
+        if domain:
+            domain_keywords = [kw.strip() for kw in re.split(r'[,\s]+', domain) if kw.strip()]
+            for kw in domain_keywords:
+                if kw not in keywords:
+                    keywords.append(kw)
 
         return keywords
 

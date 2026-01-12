@@ -1,5 +1,6 @@
 import io
 import logging
+import re
 import requests
 from pathlib import Path
 from PIL import Image
@@ -40,18 +41,45 @@ class ImageWebTaskExecutor(BaseTaskExecutor):
         self.formatter = Formatter(llm)
 
     def extract_keywords(self, task_definition: str) -> List[str]:
-        """Extract domain keywords using LLM based on task instruction."""
-        domain = self.config.domain
+        """
+        Extract keywords for HuggingFace dataset search with domain-first priority.
 
-        keywords = self.keyword_extractor.extract_keywords(
+        Strategy:
+        1. Domain field (if provided) - primary user-controlled keyword
+        2. LLM extraction from task_instruction - supplementary keywords for breadth
+        3. Search with ALL keywords to maximize dataset discovery
+        """
+        domain = self.config.domain
+        keywords = []
+
+        # Priority 1: Use domain as primary keywords if provided
+        # Split by comma or space to allow multiple keywords (e.g., "mathematics, gsm8k" or "mathematics gsm8k")
+        if domain:
+            domain_keywords = [kw.strip() for kw in re.split(r'[,\s]+', domain) if kw.strip()]
+            keywords.extend(domain_keywords)
+            logger.info(f"Using domain keywords: {domain_keywords}")
+
+        # Priority 2: Extract additional keywords from task instruction
+        llm_keywords = self.keyword_extractor.extract_keywords(
             task_instruction=task_definition,
             for_huggingface=True
         )
 
-        # If domain is non-empty and not already in keywords, add it
-        if domain and domain not in keywords:
-            keywords.append(domain)
+        # Add LLM keywords, avoiding duplicates
+        for kw in llm_keywords:
+            if kw not in keywords:
+                keywords.append(kw)
 
+        if llm_keywords:
+            logger.info(f"LLM extracted supplementary keywords: {llm_keywords}")
+
+        if not keywords:
+            raise ValueError(
+                "No keywords available for dataset search. "
+                "Please provide 'domain' field or ensure task_instruction is descriptive enough for keyword extraction."
+            )
+
+        logger.info(f"Final search keywords: {keywords}")
         return keywords
 
     def search_datasets(self) -> List[Dict]:
@@ -412,10 +440,10 @@ class ImageWebTaskExecutor(BaseTaskExecutor):
 
         return dataset
 
-    def validate_datasets(self, datasets: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+    def validate_datasets(self, datasets: List[Dict]) -> List[Dict]:
         """
-        Probe all datasets and filter by score threshold.
-        Returns tuple of (valid_datasets, fallback_datasets) sorted by score.
+        Probe all datasets and score them.
+        Returns list of scored datasets sorted by score (highest first).
         """
         scored_datasets = []
         for dataset in tqdm(datasets, desc="Validating datasets", unit="dataset"):
@@ -426,41 +454,49 @@ class ImageWebTaskExecutor(BaseTaskExecutor):
         # Sort by score (highest first)
         scored_datasets.sort(key=lambda x: x["overall_score"], reverse=True)
 
-        # Separate by threshold
-        above_threshold = [d for d in scored_datasets if d["overall_score"] >= self.config.dataset_score_threshold]
-        below_threshold = [d for d in scored_datasets if d["overall_score"] < self.config.dataset_score_threshold]
+        logger.info(f"Validated: {len(scored_datasets)} datasets with scores")
 
-        logger.info(f"Validated: {len(above_threshold)} valid, {len(below_threshold)} fallback datasets")
+        return scored_datasets
 
-        return above_threshold, below_threshold
-
-    def calculate_distribution(
-        self,
-        valid_datasets: List[Dict],
-        fallback_datasets: List[Dict],
-        num_samples: int
-    ) -> List[Dict]:
+    def calculate_distribution(self, scored_datasets: List[Dict], num_samples: int) -> List[Dict]:
         """
         Calculate how many samples to extract from each dataset.
+        Uses sequential score-based approach: extract from highest-scored datasets first
+        until we have enough samples. This ensures maximum quality.
+
+        Args:
+            scored_datasets: All datasets sorted by score (highest first)
+            num_samples: Total number of samples needed
+
+        Returns:
+            List of datasets with samples_to_extract field set
         """
-        all_datasets = valid_datasets.copy()
-
-        if not all_datasets:
-            logger.warning("No valid datasets available. Using fallback datasets.")
-            all_datasets = fallback_datasets.copy()
-
-        if not all_datasets:
+        if not scored_datasets:
             return []
 
-        # Distribute evenly
-        n_datasets = len(all_datasets)
-        base_count = num_samples // n_datasets
-        remainder = num_samples % n_datasets
+        result = []
+        remaining = num_samples
 
-        for i, dataset in enumerate(all_datasets):
-            dataset["samples_to_extract"] = base_count + (1 if i < remainder else 0)
+        for dataset in scored_datasets:
+            if remaining <= 0:
+                break
 
-        return all_datasets
+            # Get available rows from dataset
+            available = dataset.get("num_rows", float('inf'))
+            to_extract = min(remaining, available)
+
+            dataset["samples_to_extract"] = to_extract
+            result.append(dataset)
+            remaining -= to_extract
+
+            logger.info(f"Will extract {to_extract} samples from {dataset['id']} (score: {dataset['overall_score']})")
+
+        if remaining > 0:
+            logger.warning(f"Could not fulfill request: {remaining} samples still needed after exhausting all datasets")
+
+        logger.info(f"Distribution: {len(result)} datasets selected, {num_samples - remaining}/{num_samples} samples available")
+
+        return result
 
     def extract_and_format(self, dataset: Dict, image_counter: int) -> Tuple[List[Dict], int]:
         """
@@ -600,14 +636,14 @@ class ImageWebTaskExecutor(BaseTaskExecutor):
         if reporter:
             reporter.start_step(
                 "validating", "Validating Datasets",
-                message="Probing datasets for image QA fields...",
+                message="Probing datasets and scoring quality...",
                 total=len(datasets),
                 unit="datasets"
             )
 
-        valid_datasets, fallback_datasets = self.validate_datasets(datasets)
+        scored_datasets = self.validate_datasets(datasets)
 
-        if not valid_datasets and not fallback_datasets:
+        if not scored_datasets:
             error_msg = (
                 "No valid image datasets found after probing. "
                 "All datasets failed validation (missing image/input/output fields or images not retrievable)."
@@ -615,19 +651,14 @@ class ImageWebTaskExecutor(BaseTaskExecutor):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Step 3: Calculate distribution
-        datasets_to_use = self.calculate_distribution(
-            valid_datasets,
-            fallback_datasets,
-            self.config.num_samples
-        )
+        # Step 3: Calculate distribution using sequential score-based approach
+        datasets_to_use = self.calculate_distribution(scored_datasets, self.config.num_samples)
 
         if reporter:
             reporter.complete_step({
-                "message": f"Found {len(valid_datasets)} valid, {len(fallback_datasets)} fallback",
-                "valid_count": len(valid_datasets),
-                "fallback_count": len(fallback_datasets),
-                "datasets_to_use": [{"id": d["id"], "samples": d["samples_to_extract"]} for d in datasets_to_use]
+                "message": f"Validated {len(scored_datasets)} datasets, using top {len(datasets_to_use)}",
+                "total_datasets": len(scored_datasets),
+                "datasets_to_use": [{"id": d["id"], "score": d["overall_score"], "samples": d["samples_to_extract"]} for d in datasets_to_use]
             })
 
         # Step 4: Extract and format samples
@@ -645,6 +676,7 @@ class ImageWebTaskExecutor(BaseTaskExecutor):
         for idx, dataset in enumerate(tqdm(datasets_to_use, desc="Extracting samples", unit="dataset")):
             samples, image_counter = self.extract_and_format(dataset, image_counter)
             all_samples.extend(samples)
+            logger.info(f"Extracted {len(samples)} samples from {dataset['id']} (score: {dataset['overall_score']})")
 
             if reporter:
                 reporter.update_step(
@@ -653,24 +685,12 @@ class ImageWebTaskExecutor(BaseTaskExecutor):
                     current_item_name=dataset['id']
                 )
 
-        # Use fallback datasets if needed
-        if len(all_samples) < self.config.num_samples and fallback_datasets:
-            remaining = self.config.num_samples - len(all_samples)
-            logger.warning(f"Using fallback datasets for {remaining} more samples")
-
-            for dataset in fallback_datasets:
-                if len(all_samples) >= self.config.num_samples:
-                    break
-
-                dataset["samples_to_extract"] = self.config.num_samples - len(all_samples)
-                samples, image_counter = self.extract_and_format(dataset, image_counter)
-                all_samples.extend(samples)
-
         if reporter:
             reporter.complete_step({
-                "message": f"Extracted {len(all_samples)} samples with {image_counter} images",
+                "message": f"Extracted {len(all_samples)} samples with {image_counter} images from {len(datasets_to_use)} datasets",
                 "samples_extracted": len(all_samples),
-                "images_downloaded": image_counter
+                "images_downloaded": image_counter,
+                "datasets_used": len(datasets_to_use)
             })
 
         # Build final dataset

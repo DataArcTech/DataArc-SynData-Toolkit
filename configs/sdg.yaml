@@ -48,7 +48,6 @@ task:
     # web:
     #   huggingface_token: "hf_"        # Optional. This parameter can be set by 'export HUGGINGFACE_TOKEN="YOUR TOKEN"'
     #   dataset_limit: 5                # Number of datasets to crawl per keyword (default: 5)
-    #   dataset_score_threshold: 30     # minimum overall score (sum of 5 criteria) for a dataset to be valid (Range: 0~50)
 
     # Distill task: pure instruction-based generation
     # distill:
@@ -75,18 +74,17 @@ task:
   #   web:
   #     huggingface_token: "hf_"        # Optional. Can be set via 'export HUGGINGFACE_TOKEN="YOUR TOKEN"'
   #     dataset_limit: 5                # Number of datasets to crawl per keyword (default: 5)
-  #     dataset_score_threshold: 30     # Minimum score for a dataset to be valid (Range: 0~50)
 
 # Base model for evaluation and inference (vLLM for text, VLM for image modality)
 # For image modality, use a VLM model like Qwen/Qwen2-VL-7B-Instruct
 base_model:
-  path: Qwen/Qwen2.5-7B   # Text: Qwen/Qwen2.5-7B | Image: Qwen/Qwen3-VL-7B-Instruct
+  path: Qwen/Qwen2.5-7B   # Image: Qwen/Qwen3-VL-7B-Instruct
 
 # LLM/VLM used throughout the pipeline (Create .env file to specify base url and api key)
 # For image modality, use a VLM like gpt-4o or claude-3-5-sonnet
 llm:
   provider: openai
-  model: gpt-4o-mini      # Text: gpt-4o-mini | Image: gpt-4o (VLM required)
+  model: gpt-4o-mini      # Image: gpt-4o (VLM required)
 
 # Answer extraction configuration (HOW to mark final answer of the question, refer to GSM8K dataset)
 answer_extraction:
@@ -146,7 +144,6 @@ evaluation:
     #   temperature: 0.3
 
 # Rewrite Configuration
-# Uncomment ONE method below: difficulty_adjust
 rewrite:
   difficulty_adjust:
     easier_temperature: 0.9

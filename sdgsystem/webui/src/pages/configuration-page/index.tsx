@@ -1,5 +1,5 @@
 import { EventStreamContentType, fetchEventSource } from '@microsoft/fetch-event-source'
-import { Button, Card, Collapse, Form, Input, message, Select } from 'antd'
+import { Button, Card, Collapse, Form, Input, InputNumber, message, Select } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { taskApi } from '@/api/task'
@@ -73,7 +73,7 @@ export default function ConfigurationPage() {
       outputInstruction: config.task.output_instruction || '',
       parserMethod: config.task.text.local?.parsing.method || '',
       huggingfaceToken: config.task.text.web?.huggingface_token || '',
-      datasetScoreThreshold: config.task.text.web?.dataset_score_threshold || 30,
+      datasetLimit: config.task.text.web?.dataset_limit || 5,
       arabicTranslatorModelPath: config.translation.model_path || '',
     }
 
@@ -187,7 +187,7 @@ export default function ConfigurationPage() {
       }
     }
 
-    if (allValues.huggingfaceToken !== undefined) {
+    if (allValues.huggingfaceToken !== undefined || allValues.datasetLimit !== undefined) {
       updates.task = {
         ...(updates.task || config.task),
         text: {
@@ -195,19 +195,7 @@ export default function ConfigurationPage() {
           web: {
             ...config.task.text.web,
             huggingface_token: allValues.huggingfaceToken as string,
-          },
-        },
-      }
-    }
-
-    if (allValues.datasetScoreThreshold !== undefined) {
-      updates.task = {
-        ...(updates.task || config.task),
-        text: {
-          ...(updates.task?.text || config.task.text),
-          web: {
-            ...(updates.task?.text?.web || config.task.text.web),
-            dataset_score_threshold: Number(allValues.datasetScoreThreshold) || 30,
+            dataset_limit: allValues.datasetLimit as number,
           },
         },
       }
@@ -233,7 +221,7 @@ export default function ConfigurationPage() {
     } else if (taskType === 'web') {
       textConfig.web = config.task.text.web || {
         huggingface_token: '',
-        dataset_score_threshold: 30,
+        dataset_limit: 5,
       }
     } else if (taskType === 'distill') {
       textConfig.distill = config.task.text.distill || {
@@ -254,7 +242,6 @@ export default function ConfigurationPage() {
   const initialValues = {
     language: 'english',
     parserMethod: 'mineru',
-    datasetScoreThreshold: 30,
   }
 
   const taskTypeButtons = [
@@ -607,13 +594,23 @@ export default function ConfigurationPage() {
                 <Input placeholder="hf_..." size="large" />
               </div>
             </Form.Item>
-
             <Form.Item
-              name="datasetScoreThreshold"
-              label="Dataset Score Threshold"
-              rules={[{ required: true, message: 'Please enter Dataset Score Threshold' }]}
+              label="Datasets To Search Per Keyword"
+              name="datasetLimit"
+              rules={[{ required: true, message: 'Please input dataset limit' }]}
             >
-              <Input placeholder="30" type="number" size="large" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: token.marginXS }}>
+                <div
+                  style={{
+                    fontSize: token.fontSizeSM,
+                    color: token.colorTextTertiary,
+                    marginBottom: token.marginXS,
+                  }}
+                >
+                  Number of datasets to search for each keyword.
+                </div>
+                <InputNumber min={1} max={20} defaultValue={5} size="large" style={{ width: '100%' }} />
+              </div>
             </Form.Item>
           </>
         )
