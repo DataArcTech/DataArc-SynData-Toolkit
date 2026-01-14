@@ -7,7 +7,7 @@
 [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-ffa000.svg)](https://docs.pydantic.dev/)
 
 <p>
-  <a href="https://discord.gg/zuGewCB5">
+  <a href="https://discord.gg/u48SJ9HEbd">
     <img src="https://img.shields.io/static/v1?style=for-the-badge&message=Community&color=7289da&logo=discord&logoColor=white&label=Discord&labelColor=1a1a2e">
   </a>
   <a href="https://github.com/DataArcTech/DataArc-SynData-Toolkit/issues/2">
