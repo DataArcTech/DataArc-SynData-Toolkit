@@ -80,6 +80,9 @@ dependencies = [
     "torchdata>=0.11.0",
     "wandb>=0.23.1",
 
+    # 评估依赖
+    "deepeval>=3.8.0",
+
     # 构建工具
     "editables>=0.5",
     "hatchling>=1.28.0",
@@ -125,8 +128,7 @@ uv add torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0
 vLLM 和 flash-attention 依赖于已安装的 PyTorch 和 CUDA 运行时。使用以下命令安装正确版本的 vLLM 和 flash-attention。
 
 ```shell
-uv add flash-attn --no-build-isolation
-uv add vllm
+uv add flash-attn vllm
 ```
 
 #### 第四步 - 安装通用依赖（与 CUDA 无关）

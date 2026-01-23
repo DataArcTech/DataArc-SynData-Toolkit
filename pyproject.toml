@@ -35,6 +35,9 @@ dependencies = [
     "torchdata>=0.11.0",
     "wandb>=0.23.1",
 
+    # Evaluation dependencies
+    "deepeval>=3.8.0",
+    
     # Build tools
     "editables>=0.5",
     "hatchling>=1.28.0",

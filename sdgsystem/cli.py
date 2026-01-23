@@ -90,6 +90,77 @@ def generate(
 @cli.command()
 @click.argument("config_file", type=click.Path(exists=True))
 @click.option("--dataset", "-d", type=click.Path(exists=True), default=None,
+              help="Override test dataset path")
+@click.option("--model", type=str, default=None,
+              help="Override post-trained model path")
+@click.option("--output", "-o", type=click.Path(), default=None,
+              help="Override output directory")
+def eval(
+    config_file: str,
+    dataset: str | None,
+    model: str | None,
+    output: str | None,
+) -> None:
+    """Evaluate a post-trained model using DeepEval.
+
+    \b
+    Example:
+        sdg eval configs/eval.yaml
+        sdg eval configs/eval.yaml --model ./checkpoints/merged_model
+
+    \b
+    Supports three metrics:
+    - Answer Correctness (G-Eval)
+    - Pairwise Preference (Arena G-Eval)
+    - Format Compliance (G-Eval)
+
+    \b
+    Note: For verl checkpoints, merge to HuggingFace format first:
+        python -m verl.model_merger merge --backend fsdp --local_dir <checkpoint> --target_dir <output>
+    """
+    from .deepeval import DeepEvalConfig, DeepEvalEvaluator
+
+    # Load config from YAML
+    config = DeepEvalConfig.from_yaml(config_file)
+
+    # Apply CLI overrides
+    if dataset is not None:
+        config.dataset.path = dataset
+    if model is not None:
+        config.post_trained_model.config.path = model
+    if output is not None:
+        config.output.dir = output
+
+    click.echo("Starting DeepEval evaluation...")
+    click.echo(f"  Test Dataset: {config.dataset.path}")
+    click.echo(f"  Post-trained Model: {config.post_trained_model.config.path}")
+    click.echo(f"  Judge Model: {config.judge_model}")
+    click.echo(f"  Output: {config.output.dir}")
+
+    # Show enabled metrics
+    metrics = []
+    if config.correctness.enabled:
+        metrics.append("Answer Correctness")
+    if config.pairwise.enabled:
+        metrics.append("Pairwise Preference")
+    if config.format_compliance.enabled:
+        metrics.append("Format Compliance")
+    click.echo(f"  Metrics: {', '.join(metrics)}")
+
+    try:
+        evaluator = DeepEvalEvaluator(config)
+        results = evaluator.run()
+
+        click.echo(click.style("Evaluation completed successfully!", fg="green"))
+
+    except Exception as e:
+        click.echo(click.style(f"Evaluation failed: {e}", fg="red"))
+        raise SystemExit(1)
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True))
+@click.option("--dataset", "-d", type=click.Path(exists=True), default=None,
               help="Override training dataset path")
 @click.option("--model", type=str, default=None,
               help="Override model path")

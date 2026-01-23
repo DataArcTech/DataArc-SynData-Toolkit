@@ -1,0 +1,87 @@
+# DeepEval Post-Training Evaluation Configuration Example
+
+# Dataset configuration
+dataset:
+  path: ./dataset/test.jsonl           # Test dataset with 'input' and 'output' fields
+
+# Output configuration
+output:
+  dir: ./deepeval_results
+
+# Post-trained model to evaluate
+post_trained_model:
+  path: ./checkpoints/sft/model       # Path to fine-tuned model
+  device: cuda:0
+  max_model_len: 4096
+  gpu_memory_utilization: 0.8
+
+# Judge model for G-Eval (uses DeepEval built-in API)
+# Reads OPENAI_API_KEY and OPENAI_BASE_URL from .env
+judge_model: gpt-4.1
+
+# Inference settings
+inference:
+  temperature: 0.0
+  max_tokens: 2048
+  output_instruction: "The answer should contain reasoning process step by step. Output your final answer after #####."    # Model output instruction
+
+# ============ Metrics Configuration ============
+# All metrics are enabled by default with sensible defaults.
+# Customize below as needed.
+
+# 1. Answer Correctness - Compares model output vs ground truth using G-Eval
+correctness:
+  enabled: true
+  threshold: 0.7                      # Passing threshold (0-1 scale)
+  criteria: "Determine whether the actual output is factually correct based on the expected output."
+  evaluation_steps:
+    - "Compare actual output directly with expected output for factual accuracy"
+    - "Check if all key elements from expected output are present in actual output"
+    - "Assess discrepancies in details, values, or information"
+    - "Penalize factual errors and significant omissions"
+  rubric:
+    - score_range: [0, 2]
+      expected_outcome: "Factually incorrect or completely wrong answer"
+    - score_range: [3, 5]
+      expected_outcome: "Partially correct with significant errors or omissions"
+    - score_range: [6, 8]
+      expected_outcome: "Mostly correct with minor errors or missing details"
+    - score_range: [9, 10]
+      expected_outcome: "Fully correct and complete answer"
+
+# 2. Format Compliance - Checks if output follows the output_instruction format
+format_compliance:
+  enabled: true
+  threshold: 0.8                      # Passing threshold (0-1 scale)
+  criteria: "Evaluate whether the actual output follows the output instruction format."
+  evaluation_steps:
+    - "Identify the output format requirements from the output instruction"
+    - "Check if the actual output structure matches the required format"
+    - "Verify all required elements or sections are present"
+    - "Assess proper formatting and syntax compliance"
+  rubric:
+    - score_range: [0, 2]
+      expected_outcome: "Output does not follow the required format at all"
+    - score_range: [3, 5]
+      expected_outcome: "Output partially follows format but missing key elements"
+    - score_range: [6, 8]
+      expected_outcome: "Output follows format with minor deviations"
+    - score_range: [9, 10]
+      expected_outcome: "Output perfectly follows the required format"
+
+# 3. Pairwise Preference - Compares base model vs post-trained model using G-Eval
+#    Scoring: 10 = post-trained wins, 5 = tie, 0 = base wins
+pairwise:
+  enabled: true
+  base_model:                         # Required when pairwise is enabled
+    path: Qwen/Qwen2.5-7B             # Base model for comparison
+    device: cuda:0
+    max_model_len: 4096
+    gpu_memory_utilization: 0.8
+  criteria: "Compare Response A (post-trained model) vs Response B (base model) to determine which is better."
+  evaluation_steps:
+    - "Compare factual and logical correctness: any mistakes make that response worse."
+    - "Check for hallucinations or unsupported claims: fabricating information makes that response worse."
+    - "Evaluate instruction/format compliance: violations are penalized heavily."
+    - "Assess helpfulness, completeness, and clarity."
+    - "Output exactly 10 if Response A wins, 0 if Response B wins, or 5 if tie. No other scores allowed."
