@@ -80,6 +80,9 @@ dependencies = [
     "torchdata>=0.11.0",
     "wandb>=0.23.1",
 
+    # Evaluation dependencies
+    "deepeval>=3.8.0",
+
     # Build tools
     "editables>=0.5",
     "hatchling>=1.28.0",
@@ -121,8 +124,7 @@ uv add torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0
 vLLM and flash-attention depends on your existing PyTorch installation and CUDA runtime. Install the correct version of vLLM and flash-attention with following command.
 
 ```shell
-uv add flash-attn --no-build-isolation
-uv add vllm
+uv add flash-attn vllm
 ```
 
 #### Step 4 - Install General Dependencies (CUDA-Independent)

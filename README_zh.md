@@ -40,7 +40,8 @@
   - **本地合成**：支持基于本地语料合成数据。
   - **huggingface集成**：支持基于需求自动爬取筛查huggingface数据集。
   - **模型蒸馏**：支持基于模型蒸馏合成数据。
-- **集成模型后训练模块**：基于verl框架的端到端模型训练工作流，支持在合成数据上进行SFT和GRPO训练，提供REST API任务管理和HuggingFace模型上传功能。
+- **集成模型后训练模块**：基于[verl](https://github.com/volcengine/verl)框架的端到端模型训练工作流，支持在合成数据上进行SFT和GRPO训练。
+- **后训练模型评估**：使用[DeepEval](https://github.com/confident-ai/deepeval)框架评估训练后的模型。
 - **支持多语言**：支持英语以及各类小语种。
 - **支持多源模型接入**：支持通过本地部署、OpenAI接口等多种形式接入模型。
 - **高度可扩展**：合成数据全流程模块化，开发者可灵活基于模块定制化策略和方法实现。
@@ -74,6 +75,13 @@ https://github.com/user-attachments/assets/4b4d5ae4-d274-4971-a3cb-e9f07e841374
 - **图像模态本地任务**：使用VLM从本地图像或PDF提取的图表生成VQA（视觉问答）数据。
 - **图像模态网络任务**：自动从HuggingFace搜索和获取图文数据集。
 
+[26/01/26] 📊 新增后训练模型评估：
+- **DeepEval集成**：新增基于**DeepEval**框架的模型评估模块。
+- **三大评估指标**：
+  - **答案正确性**：将模型输出与标准答案进行比较，支持自定义评分标准。
+  - **格式合规性**：评估模型输出是否遵循指定的输出格式要求。
+  - **成对偏好比较**：比较后训练模型与基础模型，衡量训练效果提升。
+
 > [!TIP]
 >
 > 如果您无法使用最新的功能，请尝试重新拉取代码
@@ -102,7 +110,8 @@ DataArc-SynData-Toolkit/
 ├── configs/                        # YAML配置样例
 │   ├── sdg.yaml                    # SDG流程配置
 │   ├── sft.yaml                    # SFT训练配置
-│   └── grpo.yaml                   # GRPO训练配置
+│   ├── grpo.yaml                   # GRPO训练配置
+│   └── eval.yaml                   # 模型评估配置
 │
 ├── sdgsystem/                      # 核心系统
 │   ├── app/                        # FastAPI后端 (REST + SSE)
@@ -111,7 +120,8 @@ DataArc-SynData-Toolkit/
 │   ├── huggingface/                # HuggingFace数据集集成
 │   ├── distillation/               # 模型蒸馏合成
 │   ├── tasks/                      # SDG执行任务
-│   ├── evaluation/                 # 质量评估
+│   ├── evaluation/                 # 数据质量评估
+│   ├── deepeval/                   # 后训练模型评估
 │   ├── models/                     # 统一LLM接口与后处理
 │   ├── trainer/                    # 模型后训练 (verl: SFT + GRPO)
 │   ├── translation/                # 多语言支持
@@ -185,6 +195,32 @@ uv run sdg train configs/grpo.yaml
 
 详细配置选项请参考样例YAML文件。
 
+## :bar_chart: 评估后训练模型
+
+**DataArc SynData Toolkit**提供了基于[DeepEval](https://github.com/confident-ai/deepeval)的模型评估模块，支持使用LLM-as-a-Judge（G-Eval）评估后训练模型。我们支持三种评估指标：**答案正确性**、**格式合规性**和**成对偏好比较**。
+
+### 通过命令行快速开始
+
+#### 1. 准备配置文件
+
+基于[评估配置样例](./configs/eval.yaml)创建评估配置文件。
+
+在.env文件中添加API密钥。
+
+```shell
+OPENAI_API_KEY=sk-xxx   # 你的OpenAI API密钥
+OPENAI_BASE_URL=https://api.openai.com/v1  # 可选：你的OpenAI base url
+CONFIDENT_API_KEY=confident_us_xxx  # 你的Confident AI API密钥（用于访问DeepEval，注册后可免费创建）
+```
+
+#### 2. 运行评估
+
+```shell
+uv run sdg eval configs/eval.yaml
+```
+
+评估结果可在Confident AI提供的云端可视化界面查看，同时也会保存到配置的输出目录。
+
 ## :desktop_computer: 可视化界面
 
 使用如下命令启动FastAPI后端。
@@ -209,9 +245,9 @@ pnpm dev
 
 ## :date: 下一步发布的计划
 
-- **合成数据质量测评**： 提供对生成的数据进行实时质量测试。
+- **加密合成数据生成**：生成对隐私信息进行加密后的数据。
 
 ## :handshake: 欢迎贡献
 
-我们欢迎对我们的开源框架进行改进贡献！
+我们欢迎对**DataArc SynData Toolkit**进行改进贡献！
 

@@ -31,7 +31,7 @@
 
 ## :dart: Project Overview
 
-**DataArc SynData Toolkit** is a synthetic data generation toolkit developed and open-sourced by DataArcTech (https://www.dataarctech.com/) and International Digital Economy Academy (https://www.idea.edu.cn/). It enables users to generate customized training data in one step through simple configuration files based on their requirements.
+**DataArc SynData Toolkit** is a synthetic data generation toolkit developed and open-sourced by [DataArcTech](https://www.dataarctech.com/) and [International Digital Economy Academy](https://www.idea.edu.cn/). It enables users to generate customized training data in one step through simple configuration files based on their requirements.
 
 ## :bulb: Key Features
 
@@ -40,7 +40,8 @@
   - **Local Synthesis**: Support for generating data based on local corpora.
   - **Huggingface Integration**: Automatically crawl and filter data from Huggingface.
   - **Model Distillation**: Enable synthetic data generation through model distillation.
-- **Integrated Post-Training Module**: End-to-end model training workflows powered by verl, supporting SFT and GRPO.
+- **Integrated Post-Training Module**: End-to-end model training workflows powered by [verl](https://github.com/volcengine/verl), supporting SFT and GRPO.
+- **Post-Training Model Evaluation**: Evaluate trained models using [DeepEval](https://github.com/confident-ai/deepeval).
 - **Multilingual Support**: Supports English and various low-resource languages.
 - **Multi-Provider Model Support**: Works with local deployment, OpenAI APIs, and more.
 - **Highly Extensible**: The entire synthetic data workflow is modular, allowing developers to flexibly customize them.
@@ -74,6 +75,13 @@ A few lines of code deliver over 20% performance improvements.
 - **Image modality Local Task**: Generate VQA (Visual Question Answering) data from local images or PDF-extracted figures using VLMs.
 - **Image modality Web Task**: Automatically search and retrieve image-text datasets from HuggingFace Hub.
 
+[26/01/26] 📊 Post-Training Model Evaluation:
+- **DeepEval Integration**: Added model evaluation module powered by **DeepEval**.
+- **Three Evaluation Metrics**:
+  - **Answer Correctness**: Compare model output against ground truth with customizable rubrics.
+  - **Pairwise Preference**: Compare post-trained model vs base model to measure improvement.
+  - **Format Compliance**: Evaluate adherence to output format instructions.
+
 > [!TIP]
 >
 > If you cannot use the latest feature, please pull the latest code.
@@ -102,7 +110,8 @@ DataArc-SynData-Toolkit/
 ├── configs/                        # YAML configuration examples
 │   ├── sdg.yaml                    # SDG pipeline config
 │   ├── sft.yaml                    # SFT training config
-│   └── grpo.yaml                   # GRPO training config
+│   ├── grpo.yaml                   # GRPO training config
+│   └── eval.yaml                   # Model evaluation config
 │
 ├── sdgsystem/                      # Core System
 │   ├── app/                        # FastAPI backend (REST + SSE)
@@ -111,7 +120,8 @@ DataArc-SynData-Toolkit/
 │   ├── huggingface/                # HF dataset integration
 │   ├── distillation/               # Model distillation synthesis
 │   ├── tasks/                      # SDG execution tasks
-│   ├── evaluation/                 # Quality evaluation
+│   ├── evaluation/                 # Data quality evaluation
+│   ├── deepeval/                   # Post-training model evaluation (G-Eval)
 │   ├── models/                     # Unified LLM interface & postprocess
 │   ├── trainer/                    # Post-training (verl: SFT + GRPO)
 │   ├── translation/                # Multilingual support
@@ -166,7 +176,7 @@ uv run sdg generate configs/sdg.yaml  # or change to your .yaml file
 
 ## :twisted_rightwards_arrows: Training with Synthesized Data
 
-**DataArc SynData Toolkit** integrates an end-to-end model training module powered by [verl](https://github.com/volcengine/verl), enabling you to train models directly on your synthesized data. We support two training methods: **SFT (Supervised Fine-Tuning)** and **GRPO (Group Relative Policy Optimization)**
+**DataArc SynData Toolkit** integrates an end-to-end model training module powered by [verl](https://github.com/volcengine/verl), enabling you to train models directly on your synthesized data. We support two training methods: **SFT (Supervised Fine-Tuning)** and **GRPO (Group Relative Policy Optimization)**.
 
 ### Quick Start with CLI
 
@@ -185,6 +195,32 @@ uv run sdg train configs/grpo.yaml
 ```
 
 For detailed configuration options, refer to the example YAML files.
+
+## :bar_chart: Evaluating Post-Trained Models
+
+**DataArc SynData Toolkit** provides a model evaluation module powered by [DeepEval](https://github.com/confident-ai/deepeval), enabling you to assess your post-trained models using LLM-as-a-Judge (G-Eval). We support three metrics: **Answer Correctness**,  **Format Compliance** and **Pairwise Preference**.
+
+### Quick Start with CLI
+
+#### 1. Prepare Your Configuration
+
+Create an evaluation configuration file based on the [Evaluation Configuration Example](./configs/eval.yaml).
+
+Add your API keys to .env file.
+
+```shell
+OPENAI_API_KEY=sk-xxx   # your openai api key
+OPENAI_BASE_URL=https://api.openai.com/v1  # Optional: your openai base url
+CONFIDENT_API_KEY=confident_us_xxx  # your confident ai api key (access deepeval, can be created for free after signup)
+```
+
+#### 2. Run Evaluation
+
+```shell
+uv run sdg eval configs/eval.yaml
+```
+
+Results can be visulized on confident ai webpage and will be saved to the configured output directory.
 
 ## :desktop_computer: Run with GUI
 
@@ -210,7 +246,7 @@ If you have any doubt about regrading our Web UI, check our [Web UI document](/s
 
 ## :date: Schedule for the Next Release
 
-- **Synthetic Data Evaluating**: Support generated dataset evaluation in real-time.
+- **Encrypted Synthetic Data Generation**: Run generation with sensitive data encrypted.
 
 ## :handshake: Contributing
 

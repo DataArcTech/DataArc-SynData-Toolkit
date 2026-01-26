@@ -135,7 +135,8 @@ export function OutputPanel() {
     if (refineEventData?.status === 'completed') {
       const typesToLoad: TabType[] = ['solved', 'learnable', 'unsolved']
       typesToLoad.forEach(type => {
-        if (counts[type]) {
+        const count = counts[type]
+        if (count != null && count > 0) {
           loadData(type, true)
         }
       })
