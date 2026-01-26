@@ -75,7 +75,7 @@ A few lines of code deliver over 20% performance improvements.
 - **Image modality Local Task**: Generate VQA (Visual Question Answering) data from local images or PDF-extracted figures using VLMs.
 - **Image modality Web Task**: Automatically search and retrieve image-text datasets from HuggingFace Hub.
 
-[26/01/xx] 📊 Post-Training Model Evaluation:
+[26/01/26] 📊 Post-Training Model Evaluation:
 - **DeepEval Integration**: Added model evaluation module powered by **DeepEval**.
 - **Three Evaluation Metrics**:
   - **Answer Correctness**: Compare model output against ground truth with customizable rubrics.
