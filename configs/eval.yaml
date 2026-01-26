@@ -78,10 +78,12 @@ pairwise:
     device: cuda:0
     max_model_len: 4096
     gpu_memory_utilization: 0.8
-  criteria: "Compare Response A (post-trained model) vs Response B (base model) to determine which is better."
+  criteria: "Compare two model responses. Response A (actual_output) is from post-trained model. Response B (expected_output) is from base model. IMPORTANT: Neither response is ground truth - you must independently verify correctness."
   evaluation_steps:
-    - "Compare factual and logical correctness: any mistakes make that response worse."
-    - "Check for hallucinations or unsupported claims: fabricating information makes that response worse."
-    - "Evaluate instruction/format compliance: violations are penalized heavily."
-    - "Assess helpfulness, completeness, and clarity."
-    - "Output exactly 10 if Response A wins, 0 if Response B wins, or 5 if tie. No other scores allowed."
+    - "Read the input question carefully and determine the correct answer yourself first."
+    - "Check Response A (actual_output) for factual and logical correctness against your determined answer."
+    - "Check Response B (expected_output) for factual and logical correctness against your determined answer."
+    - "Check for hallucinations or unrelated content (e.g., irrelevant text, system prompts) - penalize heavily."
+    - "If only one response is correct and consistent, that response wins. If both are wrong or inconsistent, output 5 (tie)."
+    - "If both are correct and consistent, prefer the clearer, more concise response with less redundancy."
+    - "Output 10 if Response A wins, 0 if Response B wins, or 5 if tie."
