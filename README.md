@@ -251,3 +251,7 @@ If you have any doubt about regrading our Web UI, check our [Web UI document](/s
 ## :handshake: Contributing
 
 We welcome contributions!
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=DataArcTech/DataArc-SynData-Toolkit&type=timeline&logscale&legend=top-left)](https://www.star-history.com/#DataArcTech/DataArc-SynData-Toolkit&type=timeline&logscale&legend=top-left)
