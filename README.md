@@ -52,6 +52,8 @@ Watch our 2-minute demo to experience how **DataArc SynData Toolkit** works in p
 
 https://github.com/user-attachments/assets/4b4d5ae4-d274-4971-a3cb-e9f07e841374
 
+We also provide a [complete tutorial](https://youtu.be/zIHH3YnZKr4) to help you get started.
+
 ## :microscope: Performance
 
 | Model                       | Medical | Finance | Law    |

@@ -52,6 +52,9 @@
 
 https://github.com/user-attachments/assets/4b4d5ae4-d274-4971-a3cb-e9f07e841374
 
+我们还提供了一份 [完整的视频教程](https://www.bilibili.com/video/BV1aj6BB4EwA/?share_source=copy_web&vd_source=d5b10517c6d5c921c7964b398e61d151)，帮助你快速理解和上手本项目。
+
+
 ## :microscope: 性能表现
 
 | 模型                       | Medical | Finance | Law   |
