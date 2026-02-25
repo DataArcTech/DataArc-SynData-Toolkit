@@ -62,7 +62,7 @@ class DataFilter:
         if match:
             try:
                 return json.loads(match.group().strip())
-            except:
+            except Exception:
                 return {"Relevance": 5, "Correctness": 5, "Helpfulness": 5, "Clarity": 5, "Difficulty": 5}
         return {"Relevance": 5, "Correctness": 5, "Helpfulness": 5, "Clarity": 5, "Difficulty": 5}
 
@@ -141,6 +141,6 @@ class Formatter:
             try:
                 result = json.loads(match.group().strip())
                 return result
-            except:
+            except Exception:
                 return {"input": None, "output": None}
         return {"input": None, "output": None}

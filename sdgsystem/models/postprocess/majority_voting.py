@@ -244,7 +244,7 @@ class BaseVoting(ABC):
             mode_value = mode(answers)
             mode_ids = [idx for idx, value in enumerate(answers) if value == mode_value]
             selected_idx = random.choice(mode_ids) if mode_ids else None
-        except:
+        except Exception:
             mode_value, selected_idx, mode_ids = None, None, None
         
         if usage_counter:

@@ -93,7 +93,7 @@ class BaseGenerator:
                             parsed_samples.append(sample)
                         else:
                             parse_failed_count += 1
-                    except:
+                    except Exception:
                         parse_failed_count += 1
             else:
                 # already sample in dictionary type
