@@ -72,7 +72,7 @@ class TaskBuffer:
 
             if usage_counter:
                 usage_counter.load_from_dict(usage)
-        except:
+        except Exception:
             pass
 
         # resize detail_progress to match the current total if different from loaded total
@@ -82,7 +82,7 @@ class TaskBuffer:
         results: Iterable[Any] = []
         try:
             results: Iterable[Any] = load_json(self.result_path)
-        except:
+        except Exception:
             pass
 
         return results
