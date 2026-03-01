@@ -399,6 +399,11 @@ class LocalModel(BaseLanguageModel):
     This class wraps the vLLM library to provide efficient batch inference
     for the working model (student model). It supports both deterministic
     inference and sampling for pass@n evaluation.
+
+    Token usage is tracked by summing the number of output token IDs returned
+    by vLLM for each generated completion.  The count is forwarded to
+    ModelUsageCounter so that remaining-token and remaining-time estimates
+    remain accurate during long generation runs.
     """
 
     def __init__(self, config: LocalModelConfig):
@@ -468,7 +473,7 @@ class LocalModel(BaseLanguageModel):
         return response
 
     def generate_with_prompts(self,
-        prompts: Union[str, List[str]], 
+        prompts: Union[str, List[str]],
         usage_counter: ModelUsageCounter = None,
         temperature: float = 0.0,
         max_tokens: int = 1500,
@@ -483,8 +488,12 @@ class LocalModel(BaseLanguageModel):
         2. Batch prompts, n=1: Returns List[str]
         3. Batch prompts, n>1: Returns List[List[str]]
 
+        Token usage is counted from vLLM output token IDs and reported to
+        usage_counter if provided.
+
         Args:
             prompts: Single prompt string or list of prompts
+            usage_counter: Instance to record actual token and time usage
             temperature: Sampling temperature (0.0 = deterministic)
             max_tokens: Maximum tokens to generate
             top_p: Nucleus sampling threshold
@@ -512,13 +521,15 @@ class LocalModel(BaseLanguageModel):
 
         # Generate responses
         st = time.time()
-        token_usage: int = 0
         responses = self.llm.generate(prompt_list, sampling_params)
+        elapsed = time.time() - st
+
+        # Count actual output tokens from vLLM results
+        token_usage = sum(len(output.token_ids) for resp in responses for output in resp.outputs)
         if usage_counter:
-            usage_counter.add_usage(token_usage, time.time() - st)
+            usage_counter.add_usage(token_usage, elapsed)
 
         # Format output based on input type and n
-        response = None
         if n == 1:
             # Single sample per prompt
             results = [resp.outputs[0].text for resp in responses]
@@ -612,11 +623,13 @@ class LocalModel(BaseLanguageModel):
 
         # Generate responses
         st = time.time()
-        token_usage: int = 0
         responses = self.llm.generate(multimodal_inputs, sampling_params)
+        elapsed = time.time() - st
 
+        # Count actual output tokens from vLLM results
+        token_usage = sum(len(output.token_ids) for resp in responses for output in resp.outputs)
         if usage_counter:
-            usage_counter.add_usage(token_usage, time.time() - st)
+            usage_counter.add_usage(token_usage, elapsed)
 
         # Format output based on input type and n
         if n == 1:
