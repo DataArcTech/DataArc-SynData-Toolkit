@@ -21,6 +21,11 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Generated artifacts
+buffer/
+output/
+outputs/
+
 node_modules
 dist
 dist-ssr

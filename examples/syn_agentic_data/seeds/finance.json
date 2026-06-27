@@ -1,0 +1,23 @@
+[
+  {
+    "id": "finance_quant_10",
+    "question": "Calculate the credit value adjustment (CVA) for a 3-year interest rate swap with a notional principal of $10 million, fixed rate of 3%, floating rate based on LIBOR, counterparty default probability of 0.5% per year, and recovery rate of 40%.",
+    "rationale": "import math\n\n# Define notional and swap parameters\nnotional = 10_000_000.0   # Notional of the swap in dollars\nrecovery_rate = 0.40      # 40% recovery rate\nloss_given_default = 1 - recovery_rate  # Loss Given Default ~ 60%\n\n# Default hazard rate (annual default probability)\nannual_default_probability = 0.005  # 0.5% per year\n\n# Time horizon of the swap in years (maturity)\nT = 3.0  # years\n\n# Calculate cumulative default probability using survival probability concept:\n# PD = 1 - exp(-lambda * T)\ncumulative_pd = 1 - math.exp(-annual_default_probability * T)\n\n# For this approximation, we take the full notional as the exposure.\n# Therefore, the approximate CVA is:\n#   CVA = Loss Given Default × Notional × Cumulative Default Probability\ncva = loss_given_default * notional * cumulative_pd\n\nprint(cva)",
+    "final_answer": "89328.36238162412",
+    "metadata": {
+      "name": "Quantitative Finance",
+      "domain": "Quant",
+      "license": "MIT",
+      "required_dependencies": [
+        "QuantLib==1.37"
+      ],
+      "source": "https://huggingface.co/datasets/dreamerdeo/finqa",
+      "date_created": [
+        "2025-03-26"
+      ],
+      "contributor": [
+        "Neil Johnson, Zicheng Su"
+      ]
+    }
+  }
+]

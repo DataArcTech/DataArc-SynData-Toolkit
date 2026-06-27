@@ -1,0 +1,31 @@
+output_dir: ./outputs/syn_agentic_data
+
+model:
+  provider: openai
+  model: deepseek-v4-pro
+  base_url: https://api.deepseek.com
+  max_retry_attempts: 2
+  retry_delay: 1
+
+domains:
+  - finance
+  - programming
+  - mathematical_programming
+
+strategies:
+  - few_shot
+  - self_instruct
+  - evol_instruct
+
+seed_paths:
+  finance: ../examples/syn_agentic_data/seeds/finance.json
+  programming: ../examples/syn_agentic_data/seeds/programming.json
+  mathematical_programming: ../examples/syn_agentic_data/seeds/mathematical_programming.json
+
+seed_index: 0
+num_samples_per_strategy: 1
+repair_attempts: 1
+verifier_timeout: 30
+model_request_timeout: 60
+completion_max_tokens: 8192
+temperature: 0.7
