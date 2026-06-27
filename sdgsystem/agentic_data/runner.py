@@ -31,25 +31,35 @@ def run_syn_agentic_data(config: SynAgenticDataConfig, model_client: Any) -> dic
                 config=config,
                 model_client=timed_model_client,
             )
-            if not candidate_samples:
-                candidate_samples = [{"input": str(seed_item["question"]), "output": str(seed_item.get("final_answer", ""))}]
-            candidate = candidate_samples[0]
-            candidates.append({"domain": domain, "strategy": strategy, "candidate": candidate})
+            candidate_samples = normalize_candidate_samples(candidate_samples, seed_item)
+            for candidate_index, candidate in enumerate(candidate_samples):
+                evol_direction = candidate_evol_direction(candidate)
+                candidates.append(
+                    {
+                        "domain": domain,
+                        "strategy": strategy,
+                        "candidate_index": candidate_index,
+                        "evol_direction": evol_direction,
+                        "candidate": candidate,
+                    }
+                )
 
-            record = complete_and_verify(
-                config=config,
-                model_client=timed_model_client,
-                domain=domain,
-                strategy=strategy,
-                seed_item=seed_item,
-                candidate_sample=candidate,
-                output_dir=output_dir,
-            )
-            record = maybe_repair(config=config, model_client=timed_model_client, record=record, output_dir=output_dir)
-            records.append(record)
-            if (record.get("verification") or {}).get("matched"):
-                accepted.append(record)
-            write_outputs(output_dir=output_dir, candidates=candidates, records=records, accepted=accepted, started_at=started_at)
+                record = complete_and_verify(
+                    config=config,
+                    model_client=timed_model_client,
+                    domain=domain,
+                    strategy=strategy,
+                    seed_item=seed_item,
+                    candidate_sample=candidate,
+                    candidate_index=candidate_index,
+                    evol_direction=evol_direction,
+                    output_dir=output_dir,
+                )
+                record = maybe_repair(config=config, model_client=timed_model_client, record=record, output_dir=output_dir)
+                records.append(record)
+                if (record.get("verification") or {}).get("matched"):
+                    accepted.append(record)
+                write_outputs(output_dir=output_dir, candidates=candidates, records=records, accepted=accepted, started_at=started_at)
 
     summary = write_outputs(output_dir=output_dir, candidates=candidates, records=records, accepted=accepted, started_at=started_at)
     return {"records": records, "accepted": accepted, "summary": summary}
@@ -63,6 +73,8 @@ def complete_and_verify(
     strategy: str,
     seed_item: dict[str, Any],
     candidate_sample: dict[str, Any],
+    candidate_index: int,
+    evol_direction: str | None,
     output_dir: Path,
 ) -> dict[str, Any]:
     model_name = str(config.model.get("model", ""))
@@ -77,18 +89,21 @@ def complete_and_verify(
     item, parse_error = parse_json_object(raw)
     if item is not None:
         fill_default_metadata(item, domain=domain, strategy=strategy, model=model_name)
+        apply_candidate_metadata(item, candidate_sample)
     schema_errors = validate_agentic_sample(item)
     verification = None
     if item and not schema_errors:
         verification = verify_and_canonicalize(
             item,
-            output_dir / f"verify_{strategy}_{domain}.py",
+            output_dir / f"verify_{verification_suffix(strategy, domain, candidate_index, evol_direction)}.py",
             timeout=config.verifier_timeout,
         )
     return {
         "domain": domain,
         "strategy": strategy,
         "seed_index": config.seed_index,
+        "candidate_index": candidate_index,
+        "evol_direction": evol_direction,
         "candidate_sample": candidate_sample,
         "raw_response": raw,
         "generated_item": item,
@@ -121,12 +136,14 @@ def maybe_repair(
                 strategy=record["strategy"],
                 model=str(config.model.get("model", "")),
             )
+            apply_candidate_metadata(item, record["candidate_sample"])
         schema_errors = validate_agentic_sample(item)
         verification = None
         if item and not schema_errors:
             verification = verify_and_canonicalize(
                 item,
-                output_dir / f"verify_repair_{attempt}_{record['strategy']}_{record['domain']}.py",
+                output_dir
+                / f"verify_repair_{attempt}_{verification_suffix(record['strategy'], record['domain'], record.get('candidate_index', 0), record.get('evol_direction'))}.py",
                 timeout=config.verifier_timeout,
             )
         repair = {
@@ -219,3 +236,42 @@ class RequestTimeoutModelClient:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._model_client, name)
+
+
+def candidate_evol_direction(candidate: dict[str, Any]) -> str | None:
+    return candidate_metadata_value(candidate, "evol_direction")
+
+
+def normalize_candidate_samples(candidate_samples: list[dict[str, Any]], seed_item: dict[str, Any]) -> list[dict[str, Any]]:
+    valid_candidates = [
+        candidate
+        for candidate in candidate_samples
+        if isinstance(candidate, dict) and "input" in candidate and "output" in candidate
+    ]
+    if valid_candidates:
+        return valid_candidates
+    return [{"input": str(seed_item["question"]), "output": str(seed_item.get("final_answer", ""))}]
+
+
+def apply_candidate_metadata(item: dict[str, Any], candidate_sample: dict[str, Any]) -> None:
+    for key in ["evol_direction", "candidate_source"]:
+        value = candidate_metadata_value(candidate_sample, key)
+        if value:
+            item["metadata"][key] = value
+
+
+def candidate_metadata_value(candidate: dict[str, Any], key: str) -> str | None:
+    metadata = candidate.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get(key)
+    return str(value) if value else None
+
+
+def verification_suffix(strategy: str, domain: str, candidate_index: int, evol_direction: str | None) -> str:
+    parts = [strategy, domain]
+    if evol_direction:
+        parts.append(evol_direction)
+    elif candidate_index:
+        parts.append(str(candidate_index))
+    return "_".join(parts)

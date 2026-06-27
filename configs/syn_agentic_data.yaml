@@ -24,6 +24,10 @@ seed_paths:
 
 seed_index: 0
 num_samples_per_strategy: 1
+evol_directions:
+  - in_depth
+  - in_breadth
+candidate_generation_attempts: 2
 repair_attempts: 1
 verifier_timeout: 30
 model_request_timeout: 60

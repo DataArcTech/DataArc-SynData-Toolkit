@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 DomainName = Literal["finance", "programming", "mathematical_programming"]
 StrategyName = Literal["few_shot", "self_instruct", "evol_instruct"]
+EvolDirection = Literal["in_depth", "in_breadth"]
 
 
 class SynAgenticDataConfig(BaseModel):
@@ -19,6 +20,8 @@ class SynAgenticDataConfig(BaseModel):
     seed_paths: dict[DomainName, str]
     seed_index: int = 0
     num_samples_per_strategy: int = 1
+    evol_directions: list[EvolDirection] = Field(default_factory=lambda: ["in_depth", "in_breadth"])
+    candidate_generation_attempts: int = 2
     repair_attempts: int = 1
     verifier_timeout: int = 30
     model_request_timeout: int = 120

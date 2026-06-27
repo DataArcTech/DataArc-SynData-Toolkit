@@ -19,6 +19,14 @@ Those generators first produce regular DataArc-style candidate samples with `inp
 
 The verifier executes `rationale` and accepts the sample only when the final printed line matches `final_answer`.
 
+For `evol_instruct`, the sidecar explicitly generates both Evol-Instruct directions:
+
+- `in_depth`
+- `in_breadth`
+
+The direction is recorded in candidate metadata and accepted agentic item metadata as `evol_direction`.
+If a directional Evol candidate cannot be parsed, the sidecar keeps the run complete by falling back to the seed item for that direction and records `candidate_source: seed_fallback`.
+
 ## Current Scope
 
 The initial example is intentionally small and covers only three subsets:
@@ -27,7 +35,7 @@ The initial example is intentionally small and covers only three subsets:
 - `programming`
 - `mathematical_programming`
 
-Each strategy generates one candidate per subset by default, so the smoke run produces 9 attempted records.
+`few_shot` and `self_instruct` each generate one candidate per subset by default. `evol_instruct` generates one `in_depth` candidate and one `in_breadth` candidate per subset, so the smoke run produces 12 attempted records.
 
 ## Run
 
