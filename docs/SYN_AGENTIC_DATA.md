@@ -58,7 +58,7 @@ The runner writes artifacts under `output_dir`:
 - `baseline_results.json`: all agentic completion attempts.
 - `accepted_results.json`: accepted attempts with verification metadata.
 - `accepted_agentic_items.json`: accepted Loong-style records.
-- `dataarc_train.jsonl`: accepted records converted back to DataArc `input` / `output`.
+- `dataarc_train.jsonl`: accepted records exported as Glaive-style tool-call JSONL. Each line has `conversations` and `tools`; the single available tool is `execute_python`.
 - `summary.json`: run counts and domain/strategy coverage.
 
 ## Design Notes

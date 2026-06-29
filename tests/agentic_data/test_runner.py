@@ -71,6 +71,10 @@ class SynAgenticRunnerTests(unittest.TestCase):
             self.assertTrue(all(kwargs.get("max_tokens", 0) >= 8192 for kwargs in fake_model.kwargs))
             self.assertTrue((root / "out" / "accepted_agentic_items.json").exists())
             self.assertTrue((root / "out" / "dataarc_train.jsonl").exists())
+            exported = json.loads((root / "out" / "dataarc_train.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            self.assertIn("conversations", exported)
+            self.assertIn("tools", exported)
+            self.assertEqual(exported["conversations"][2]["from"], "function_call")
 
     def test_runner_applies_request_timeout_to_all_model_calls(self):
         with tempfile.TemporaryDirectory() as tmp:
