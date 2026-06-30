@@ -7,7 +7,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, PrivateAttr
 
-DomainName = Literal["finance", "programming", "mathematical_programming"]
+DomainName = str
 StrategyName = Literal["few_shot", "self_instruct", "evol_instruct"]
 EvolDirection = Literal["in_depth", "in_breadth"]
 

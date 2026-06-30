@@ -1,0 +1,41 @@
+schema_version = "1.1"
+artifacts = []
+
+[task]
+name = "terminal-bench/portfolio-optimization"
+description = "Evaluates the ability to implement a high-performance C extension for Python that performs portfolio risk and return calculations at least 1.2x faster than a pure Python baseline while maintaining numerical accuracy."
+keywords = ["c-programming", "python-extension", "optimization"]
+[[task.authors]]
+name = "Yanhao Li"
+email = "liyanhao@stu.pku.edu.cn"
+
+[metadata]
+author_name = "Yanhao Li"
+author_email = "liyanhao@stu.pku.edu.cn"
+difficulty = "medium"
+category = "optimization"
+tags = ["c-programming", "python-extension", "optimization"]
+expert_time_estimate_min = 120.0
+junior_time_estimate_min = 480.0
+
+[verifier]
+timeout_sec = 3600.0
+
+[agent]
+timeout_sec = 3600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = "alexgshaw/portfolio-optimization:20251031"
+cpus = 1
+memory_mb = 4096
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+mcp_servers = []
+
+[verifier.env]
+
+[environment.env]
+
+[solution.env]

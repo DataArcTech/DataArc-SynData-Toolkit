@@ -9,6 +9,40 @@ from pathlib import Path
 from typing import Any
 
 
+def verify_agentic_item(item: dict[str, Any], code_path: Path, *, timeout: int = 30) -> dict[str, Any]:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    verifier = str(metadata.get("verifier") or "python_rationale_stdout")
+    if verifier == "terminal_bench_harness":
+        return verify_terminal_bench_harness(item)
+    return verify_rationale(item, code_path, timeout=timeout)
+
+
+def verify_terminal_bench_harness(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    observation = metadata.get("tool_observation")
+    if not isinstance(observation, dict):
+        observation = {}
+    status = str(observation.get("status") or "").strip()
+    reward = observation.get("reward")
+    expected = str(item.get("final_answer", "")).strip()
+    positive_status = status.lower() in {"pass", "passed", "success", "succeeded"}
+    matched = bool(observation.get("matched") is True or reward == 1 or positive_status)
+    if matched and expected:
+        matched = expected.lower() in {"pass", "passed", "success", "succeeded"} or answers_match(status, expected)
+    return {
+        "returncode": None,
+        "elapsed_seconds": observation.get("elapsed_seconds"),
+        "stdout": "",
+        "stderr": "",
+        "observed_final_line": status,
+        "expected_final_answer": expected,
+        "matched": matched,
+        "verifier": "terminal_bench_harness",
+        "external_harness": True,
+        "observation": observation,
+    }
+
+
 def verify_rationale(item: dict[str, Any], code_path: Path, *, timeout: int = 30) -> dict[str, Any]:
     code_path = code_path.resolve()
     code_path.parent.mkdir(parents=True, exist_ok=True)

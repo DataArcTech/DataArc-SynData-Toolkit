@@ -72,9 +72,10 @@ class SynAgenticRunnerTests(unittest.TestCase):
             self.assertTrue((root / "out" / "accepted_agentic_items.json").exists())
             self.assertTrue((root / "out" / "dataarc_train.jsonl").exists())
             exported = json.loads((root / "out" / "dataarc_train.jsonl").read_text(encoding="utf-8").splitlines()[0])
-            self.assertIn("conversations", exported)
+            self.assertIn("messages", exported)
             self.assertIn("tools", exported)
-            self.assertEqual(exported["conversations"][2]["from"], "function_call")
+            self.assertEqual(exported["messages"][2]["role"], "assistant")
+            self.assertEqual(exported["messages"][2]["content"][1]["type"], "function_call")
 
     def test_runner_applies_request_timeout_to_all_model_calls(self):
         with tempfile.TemporaryDirectory() as tmp:

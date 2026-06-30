@@ -1,0 +1,32 @@
+seed_root: ../examples/syn_agentic_data/terminal-bench-seed
+output_dir: ../outputs/syn_agentic_terminal_bench_smoke_real
+
+task_names:
+  - cancel-async-tasks
+
+strategies:
+  - few_shot
+  - self_instruct
+  - evol_instruct
+
+num_samples_per_strategy: 1
+evol_directions:
+  - in_depth
+  - in_breadth
+
+model:
+  provider: openai
+  model: deepseek-v4-pro
+  base_url: https://api.deepseek.com
+  max_retry_attempts: 2
+  retry_delay: 1
+
+completion_max_tokens: 16000
+model_request_timeout: 240
+
+harbor:
+  agent: codex
+  model: gpt-5.5
+  environment: docker
+  force_build: true
+  bin: /Volumes/PSSD/code/My-Agent/Agent-Benchmark/terminal-bench-science/.venv/bin/harbor

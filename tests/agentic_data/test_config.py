@@ -46,6 +46,41 @@ verifier_timeout: 30
             self.assertEqual(config.model["model"], "deepseek-v4-pro")
             self.assertEqual(config.load_seed_items("finance")[0]["final_answer"], "2")
 
+    def test_loads_environment_backed_domain_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seed = {
+                "question": "Run a terminal-bench task.",
+                "rationale": "Run an external terminal agent and verifier.",
+                "final_answer": "passed",
+                "metadata": {"domain": "terminal_bench_query_optimize", "required_dependencies": ["harbor"]},
+            }
+            (root / "terminal.json").write_text(json.dumps([seed]), encoding="utf-8")
+            config_path = root / "config.yaml"
+            config_path.write_text(
+                """
+output_dir: ./outputs/syn_agentic_data
+model:
+  provider: openai
+  model: deepseek-v4-pro
+  base_url: https://api.deepseek.com
+domains: [terminal_bench_query_optimize]
+strategies: [self_instruct]
+seed_paths:
+  terminal_bench_query_optimize: terminal.json
+seed_index: 0
+num_samples_per_strategy: 1
+repair_attempts: 1
+verifier_timeout: 30
+""",
+                encoding="utf-8",
+            )
+
+            config = SynAgenticDataConfig.from_yaml(str(config_path))
+
+            self.assertEqual(config.domains, ["terminal_bench_query_optimize"])
+            self.assertEqual(config.load_seed_items("terminal_bench_query_optimize")[0]["final_answer"], "passed")
+
     def test_to_dataarc_demo_keeps_question_and_answer_context(self):
         demo = to_dataarc_demo(
             {

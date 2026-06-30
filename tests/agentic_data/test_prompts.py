@@ -18,6 +18,25 @@ class SynAgenticPromptTests(unittest.TestCase):
         self.assertIn("Keep rationale concise", prompt)
         self.assertIn('metadata.synthetic_strategy must be "self_instruct"', prompt)
 
+    def test_completion_prompt_supports_terminal_bench_harness_contract(self):
+        prompt = build_agentic_completion_prompt(
+            strategy="self_instruct",
+            domain="terminal_bench_query_optimize",
+            seed_item={
+                "question": "Run a terminal-bench task.",
+                "rationale": "Use a terminal agent and verifier.",
+                "final_answer": "passed",
+                "metadata": {"verifier": "terminal_bench_harness"},
+            },
+            candidate_sample={"input": "candidate", "output": "rough answer"},
+            model="deepseek-v4-pro",
+        )
+        self.assertIn("terminal_bench_harness", prompt)
+        self.assertIn("tool_spec", prompt)
+        self.assertIn("tool_call", prompt)
+        self.assertIn("tool_observation", prompt)
+        self.assertNotIn("rationale must be executable Python", prompt)
+
     def test_repair_prompt_requires_same_verifiable_contract(self):
         prompt = build_repair_prompt({"schema_errors": ["bad"]})
         self.assertIn("failed schema validation or execution", prompt)

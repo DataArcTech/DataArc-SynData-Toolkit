@@ -9,7 +9,7 @@ from .config import SynAgenticDataConfig
 from .distillation_bridge import generate_candidate_samples
 from .prompts import build_agentic_completion_prompt, build_repair_prompt
 from .schema import agentic_to_dataarc, fill_default_metadata, parse_json_object, validate_agentic_sample
-from .verifier import verify_rationale
+from .verifier import verify_agentic_item
 
 
 def run_syn_agentic_data(config: SynAgenticDataConfig, model_client: Any) -> dict[str, Any]:
@@ -172,11 +172,11 @@ def maybe_repair(
 
 
 def verify_and_canonicalize(item: dict[str, Any], code_path: Path, *, timeout: int) -> dict[str, Any]:
-    verification = verify_rationale(item, code_path, timeout=timeout)
+    verification = verify_agentic_item(item, code_path, timeout=timeout)
     observed = str(verification.get("observed_final_line") or "").strip()
     if not verification.get("matched") and verification.get("returncode") == 0 and observed:
         item["final_answer"] = observed
-        verification = verify_rationale(item, code_path, timeout=timeout)
+        verification = verify_agentic_item(item, code_path, timeout=timeout)
         verification["canonicalized_final_answer"] = True
     return verification
 
