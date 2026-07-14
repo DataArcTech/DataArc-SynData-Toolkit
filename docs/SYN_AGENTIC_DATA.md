@@ -140,3 +140,6 @@ The equivalent manual Harbor command is:
   --agent-env OPENAI_BASE_URL="${HARBOR_OPENAI_BASE_URL}" \
   --agent-env OPENAI_API_KEY="${HARBOR_API_KEY}"
 ```
+
+For the OpenThoughts-TBLite large-run recipe, including accepted-only evaluation roots and Terminus-2 result
+aggregation, see [Syn Agentic TBLite Runbook](SYN_AGENTIC_TBLITE_RUNBOOK.md).
