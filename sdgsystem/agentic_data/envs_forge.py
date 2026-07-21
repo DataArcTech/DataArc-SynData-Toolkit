@@ -8,6 +8,18 @@ from typing import Sequence
 
 from .terminal_bench import TerminalBenchSeedTask, _include_seed_file, _shorten
 
+PROJECTIONS: tuple[str, ...] = ("increase_complexity", "reduce_complexity", "diversify_frontier")
+DEFAULT_ACTION_SHIFTS: dict[str, float] = {
+    "increase_complexity": -0.25,
+    "reduce_complexity": 0.25,
+    "diversify_frontier": 0.0,
+}
+CALIBRATED_TIE_BREAK: dict[str, int] = {
+    "diversify_frontier": 0,
+    "increase_complexity": 1,
+    "reduce_complexity": 2,
+}
+
 
 @dataclass(frozen=True)
 class SkillProfile:
@@ -38,6 +50,9 @@ class EnvsForgePlanItem:
     projection: str
     target_difficulty: str
     sample_index: int
+    projection_policy: str = "band_rule"
+    predicted_pass_rate: float | None = None
+    predicted_frontier_score: float | None = None
 
 
 KEYWORDS: dict[str, dict[str, tuple[str, ...]]] = {
@@ -96,6 +111,23 @@ def learning_frontier_score(pass_rate: float, *, target: float = 0.5, sigma: flo
     return math.exp(-((pass_rate - target) ** 2) / (2 * sigma**2))
 
 
+def select_calibrated_projection(
+    pass_rate: float,
+    *,
+    action_shifts: dict[str, float] | None = None,
+    target: float = 0.5,
+    sigma: float = 0.2,
+) -> tuple[str, float, float]:
+    shifts = action_shifts or DEFAULT_ACTION_SHIFTS
+    scored: list[tuple[float, int, str, float]] = []
+    for projection in PROJECTIONS:
+        predicted_pass_rate = _clip_probability(pass_rate + shifts.get(projection, 0.0))
+        score = learning_frontier_score(predicted_pass_rate, target=target, sigma=sigma)
+        scored.append((-score, CALIBRATED_TIE_BREAK[projection], projection, predicted_pass_rate))
+    _negative_score, _tie_break, projection, predicted_pass_rate = min(scored)
+    return projection, predicted_pass_rate, learning_frontier_score(predicted_pass_rate, target=target, sigma=sigma)
+
+
 def extract_skill_profile(seed: TerminalBenchSeedTask) -> SkillProfile:
     text = "\n".join([seed.instruction, seed.task_toml, *seed.files.values()]).lower()
     return SkillProfile(
@@ -116,7 +148,11 @@ def plan_envs_forge_batch(
     high: float = 0.8,
     target: float = 0.5,
     sigma: float = 0.2,
+    projection_policy: str = "band_rule",
+    action_shifts: dict[str, float] | None = None,
 ) -> list[EnvsForgePlanItem]:
+    if projection_policy not in {"band_rule", "calibrated_transfer"}:
+        raise ValueError("projection_policy must be 'band_rule' or 'calibrated_transfer'")
     rewards_by_seed = rewards_by_seed or {}
     candidates: list[EnvsForgePlanItem] = []
     for seed in seeds:
@@ -124,16 +160,35 @@ def plan_envs_forge_batch(
         pass_rate = _observed_reward_mean(reward_values)
         frontier_score = learning_frontier_score(pass_rate, target=target, sigma=sigma) if reward_values else 0.0
         band = classify_band(pass_rate, low=low, high=high)
+        profile = extract_skill_profile(seed)
+        predicted_pass_rate = None
+        predicted_frontier_score = None
+        if projection_policy == "calibrated_transfer":
+            projection, predicted_pass_rate, predicted_frontier_score = select_calibrated_projection(
+                pass_rate,
+                action_shifts=action_shifts,
+                target=target,
+                sigma=sigma,
+            )
+            if reward_values:
+                frontier_score = predicted_frontier_score
+            target_difficulty = target_difficulty_for_projection(projection)
+        else:
+            projection = projection_for_band(band)
+            target_difficulty = target_difficulty_for_band(band)
         candidates.append(
             EnvsForgePlanItem(
                 seed=seed,
-                profile=extract_skill_profile(seed),
+                profile=profile,
                 pass_rate=pass_rate,
                 frontier_score=frontier_score,
                 band=band,
-                projection=projection_for_band(band),
-                target_difficulty=target_difficulty_for_band(band),
+                projection=projection,
+                target_difficulty=target_difficulty,
                 sample_index=0,
+                projection_policy=projection_policy,
+                predicted_pass_rate=predicted_pass_rate,
+                predicted_frontier_score=predicted_frontier_score,
             )
         )
 
@@ -150,6 +205,9 @@ def plan_envs_forge_batch(
                 projection=item.projection,
                 target_difficulty=item.target_difficulty,
                 sample_index=index,
+                projection_policy=item.projection_policy,
+                predicted_pass_rate=item.predicted_pass_rate,
+                predicted_frontier_score=item.predicted_frontier_score,
             )
         )
     return selected
@@ -177,6 +235,10 @@ def _observed_reward_mean(rewards: Sequence[float]) -> float:
     return sum(float(reward) for reward in rewards) / len(rewards)
 
 
+def _clip_probability(value: float) -> float:
+    return min(1.0, max(0.0, float(value)))
+
+
 def classify_band(pass_rate: float, *, low: float = 0.2, high: float = 0.8) -> str:
     if pass_rate >= high:
         return "easy"
@@ -191,6 +253,12 @@ def projection_for_band(band: str) -> str:
     if band == "hard":
         return "reduce_complexity"
     return "diversify_frontier"
+
+
+def target_difficulty_for_projection(projection: str) -> str:
+    if projection == "reduce_complexity":
+        return "easy"
+    return "medium"
 
 
 def target_difficulty_for_band(band: str) -> str:
@@ -210,6 +278,7 @@ def build_envs_forge_prompt(item: EnvsForgePlanItem, *, model: str) -> str:
         "pass_rate": round(item.pass_rate, 4),
         "learning_frontier_score": round(item.frontier_score, 4),
         "projection": item.projection,
+        "projection_policy": item.projection_policy,
         "target_difficulty": item.target_difficulty,
         "skill_profile": {
             "domains": item.profile.domains,
@@ -219,6 +288,10 @@ def build_envs_forge_prompt(item: EnvsForgePlanItem, *, model: str) -> str:
             "constraints": item.profile.constraints,
         },
     }
+    if item.predicted_pass_rate is not None:
+        payload["predicted_pass_rate_after_projection"] = round(item.predicted_pass_rate, 4)
+    if item.predicted_frontier_score is not None:
+        payload["predicted_frontier_score_after_projection"] = round(item.predicted_frontier_score, 4)
     return f"""Synthesize one terminal-bench-style task directory using Envs-FORGE.
 
 Return exactly one JSON object, no markdown.

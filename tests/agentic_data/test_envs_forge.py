@@ -11,6 +11,7 @@ from sdgsystem.agentic_data.envs_forge import (
     learning_frontier_score,
     load_rewards_from_harbor_result,
     plan_envs_forge_batch,
+    select_calibrated_projection,
 )
 from sdgsystem.agentic_data.terminal_bench import TerminalBenchSeedTask
 
@@ -100,6 +101,69 @@ class EnvsForgeTests(unittest.TestCase):
 
         self.assertEqual(by_seed["api-endpoint-permission-canonicalizer"].band, "easy")
         self.assertEqual(by_seed["systemd-log-monitoring"].band, "hard")
+
+    def test_select_calibrated_projection_chooses_action_closest_to_frontier(self):
+        shifts = {
+            "increase_complexity": -0.5,
+            "reduce_complexity": 0.5,
+            "diversify_frontier": 0.0,
+        }
+
+        easy_projection, easy_predicted, easy_score = select_calibrated_projection(
+            1.0,
+            action_shifts=shifts,
+        )
+        hard_projection, hard_predicted, hard_score = select_calibrated_projection(
+            0.0,
+            action_shifts=shifts,
+        )
+        frontier_projection, frontier_predicted, frontier_score = select_calibrated_projection(
+            0.5,
+            action_shifts=shifts,
+        )
+
+        self.assertEqual(easy_projection, "increase_complexity")
+        self.assertAlmostEqual(easy_predicted, 0.5)
+        self.assertAlmostEqual(easy_score, 1.0)
+        self.assertEqual(hard_projection, "reduce_complexity")
+        self.assertAlmostEqual(hard_predicted, 0.5)
+        self.assertAlmostEqual(hard_score, 1.0)
+        self.assertEqual(frontier_projection, "diversify_frontier")
+        self.assertAlmostEqual(frontier_predicted, 0.5)
+        self.assertAlmostEqual(frontier_score, 1.0)
+
+    def test_plan_envs_forge_batch_can_use_calibrated_transfer_policy(self):
+        seeds = [
+            make_seed("easy-csv-task", "Merge csv files."),
+            make_seed("hard-systemd-task", "Configure systemd service, timer, journald logs, and logrotate."),
+            make_seed("frontier-json-task", "Normalize malformed jsonl rows with deterministic sorting."),
+        ]
+        rewards = {
+            "easy-csv-task": [1, 1],
+            "hard-systemd-task": [0, 0],
+            "frontier-json-task": [1, 0],
+        }
+
+        plan = plan_envs_forge_batch(
+            seeds,
+            rewards_by_seed=rewards,
+            target_count=3,
+            projection_policy="calibrated_transfer",
+            action_shifts={
+                "increase_complexity": -0.5,
+                "reduce_complexity": 0.5,
+                "diversify_frontier": 0.0,
+            },
+        )
+        by_seed = {item.seed.name: item for item in plan}
+
+        self.assertEqual(by_seed["easy-csv-task"].projection, "increase_complexity")
+        self.assertEqual(by_seed["hard-systemd-task"].projection, "reduce_complexity")
+        self.assertEqual(by_seed["frontier-json-task"].projection, "diversify_frontier")
+        self.assertEqual(by_seed["easy-csv-task"].projection_policy, "calibrated_transfer")
+        self.assertAlmostEqual(by_seed["easy-csv-task"].predicted_pass_rate, 0.5)
+        self.assertAlmostEqual(by_seed["hard-systemd-task"].predicted_pass_rate, 0.5)
+        self.assertAlmostEqual(by_seed["frontier-json-task"].predicted_pass_rate, 0.5)
 
     def test_build_envs_forge_prompt_contains_projection_contract_and_full_artifact_requirements(self):
         seed = make_seed("systemd-log-monitoring", "Configure systemd service, timer, journald logs, and logrotate.")

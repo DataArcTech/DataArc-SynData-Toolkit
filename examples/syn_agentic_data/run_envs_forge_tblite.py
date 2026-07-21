@@ -90,6 +90,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-seeds", type=int, default=None)
     parser.add_argument("--task-names", nargs="+", default=None)
     parser.add_argument("--synthesis-model", default="deepseek-v4-flash")
+    parser.add_argument("--projection-policy", choices=["band_rule", "calibrated_transfer"], default="band_rule")
     parser.add_argument("--downstream-model", default="openai/qwen3-8b")
     parser.add_argument("--completion-max-tokens", type=int, default=20000)
     parser.add_argument("--request-timeout", type=int, default=600)
@@ -120,7 +121,12 @@ def main() -> None:
 
     rewards = load_performance_rewards(args.performance_result)
     seeds = discover_seed_tasks(source_root, task_names=args.task_names, limit=args.limit_seeds)
-    plan = plan_envs_forge_batch(seeds, rewards_by_seed=rewards, target_count=args.target_count)
+    plan = plan_envs_forge_batch(
+        seeds,
+        rewards_by_seed=rewards,
+        target_count=args.target_count,
+        projection_policy=args.projection_policy,
+    )
     write_json(method_dir / "envs_forge_plan.json", [plan_item_to_json(item) for item in plan])
     print_plan(plan, method_dir)
     if args.dry_run:
@@ -180,6 +186,7 @@ def main() -> None:
     summary["envs_forge"] = {
         "target_count": args.target_count,
         "eval_root": str(eval_root),
+        "projection_policy": args.projection_policy,
         "synthesis_model": args.synthesis_model,
         "downstream_model": args.downstream_model,
     }
@@ -367,9 +374,14 @@ def materialize_and_validate_record(
             metadata.setdefault("source_seed", item.seed.name)
             metadata.setdefault("synthetic_strategy", "envs_forge")
             metadata.setdefault("envs_forge_projection", item.projection)
+            metadata.setdefault("envs_forge_projection_policy", item.projection_policy)
             metadata.setdefault("envs_forge_band", item.band)
             metadata.setdefault("envs_forge_pass_rate", item.pass_rate)
             metadata.setdefault("envs_forge_frontier_score", item.frontier_score)
+            if item.predicted_pass_rate is not None:
+                metadata.setdefault("envs_forge_predicted_pass_rate", item.predicted_pass_rate)
+            if item.predicted_frontier_score is not None:
+                metadata.setdefault("envs_forge_predicted_frontier_score", item.predicted_frontier_score)
             metadata.setdefault("augmentation_model", model)
             metadata.setdefault("date_created", datetime.now(timezone.utc).date().isoformat())
             if repair_index is not None:
@@ -541,8 +553,11 @@ def plan_item_to_json(item: EnvsForgePlanItem) -> dict[str, Any]:
         "frontier_score": item.frontier_score,
         "band": item.band,
         "projection": item.projection,
+        "projection_policy": item.projection_policy,
         "target_difficulty": item.target_difficulty,
         "sample_index": item.sample_index,
+        "predicted_pass_rate": item.predicted_pass_rate,
+        "predicted_frontier_score": item.predicted_frontier_score,
         "skills": {
             "domains": item.profile.domains,
             "tools": item.profile.tools,
