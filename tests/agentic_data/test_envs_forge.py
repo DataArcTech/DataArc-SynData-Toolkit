@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 
 from sdgsystem.agentic_data.envs_forge import (
+    ArtifactEditMask,
     EnvsForgePlanItem,
+    _solve_joint_with_pyscipopt,
     build_envs_forge_prompt,
     estimate_pass_rate,
     extract_skill_profile,
@@ -165,6 +167,163 @@ class EnvsForgeTests(unittest.TestCase):
         self.assertAlmostEqual(by_seed["hard-systemd-task"].predicted_pass_rate, 0.5)
         self.assertAlmostEqual(by_seed["frontier-json-task"].predicted_pass_rate, 0.5)
 
+    def test_joint_optimization_can_select_lower_score_candidate_to_satisfy_skill_constraints(self):
+        seeds = [
+            make_seed("frontier-json-task", "Normalize malformed jsonl rows with deterministic sorting."),
+            make_seed("hard-systemd-task", "Configure systemd service, timer, journald logs, and logrotate."),
+            make_seed("easy-csv-task", "Merge csv files."),
+        ]
+        rewards = {
+            "frontier-json-task": [1, 0],
+            "hard-systemd-task": [0, 0],
+            "easy-csv-task": [1, 1],
+        }
+
+        plan = plan_envs_forge_batch(
+            seeds,
+            rewards_by_seed=rewards,
+            target_count=1,
+            projection_policy="joint_optimization",
+            min_skill_coverage={"system_admin": 1},
+        )
+
+        self.assertEqual(len(plan), 1)
+        item = plan[0]
+        self.assertEqual(item.seed.name, "hard-systemd-task")
+        self.assertEqual(item.projection, "reduce_complexity")
+        self.assertEqual(item.projection_policy, "joint_optimization")
+        self.assertIn("environment", item.artifact_edit_mask.required_artifacts)
+        self.assertIn("system_admin", item.skill_subgraph.preserve_nodes)
+        self.assertIn("systemd", item.skill_subgraph.allowed_removed_nodes)
+        self.assertIn(item.solver_backend, {"pyscipopt", "exact_enumeration", "greedy"})
+
+    def test_joint_optimization_uses_frontier_objective_without_extra_constraints(self):
+        seeds = [
+            make_seed("frontier-json-task", "Normalize malformed jsonl rows with deterministic sorting."),
+            make_seed("hard-systemd-task", "Configure systemd service, timer, journald logs, and logrotate."),
+        ]
+        rewards = {
+            "frontier-json-task": [1, 0],
+            "hard-systemd-task": [0, 0],
+        }
+
+        plan = plan_envs_forge_batch(
+            seeds,
+            rewards_by_seed=rewards,
+            target_count=1,
+            projection_policy="joint_optimization",
+        )
+
+        self.assertEqual(plan[0].seed.name, "frontier-json-task")
+        self.assertEqual(plan[0].projection, "diversify_frontier")
+        self.assertAlmostEqual(plan[0].predicted_pass_rate, 0.5)
+
+    def test_joint_optimization_is_marked_as_binary_integer_programming(self):
+        seeds = [
+            make_seed("frontier-json-task", "Normalize malformed jsonl rows with deterministic sorting."),
+            make_seed("hard-systemd-task", "Configure systemd service, timer, journald logs, and logrotate."),
+        ]
+        rewards = {
+            "frontier-json-task": [1, 0],
+            "hard-systemd-task": [0, 0],
+        }
+
+        plan = plan_envs_forge_batch(
+            seeds,
+            rewards_by_seed=rewards,
+            target_count=1,
+            projection_policy="joint_optimization",
+        )
+
+        item = plan[0]
+        self.assertEqual(item.optimization_formulation, "binary_integer_programming")
+        self.assertEqual(item.solver_result["optimization_formulation"], "binary_integer_programming")
+        self.assertEqual(item.solver_result["optimization_formulation_label"], "0-1 integer programming")
+
+    def test_joint_optimization_solves_skill_graph_nodes_for_allowed_additions(self):
+        seeds = [
+            make_seed("easy-csv-task", "Merge csv files."),
+            make_seed("hard-systemd-task", "Configure systemd service, timer, journald logs, and logrotate."),
+        ]
+        rewards = {
+            "easy-csv-task": [1, 1],
+            "hard-systemd-task": [0, 0],
+        }
+
+        plan = plan_envs_forge_batch(
+            seeds,
+            rewards_by_seed=rewards,
+            target_count=1,
+            projection_policy="joint_optimization",
+            min_skill_coverage={"edge_cases": 1},
+        )
+
+        self.assertEqual(len(plan), 1)
+        item = plan[0]
+        self.assertEqual(item.seed.name, "easy-csv-task")
+        self.assertEqual(item.projection, "increase_complexity")
+        self.assertIn("edge_cases", item.skill_subgraph.nodes)
+        self.assertIn("edge_cases", item.skill_subgraph.allowed_added_nodes)
+        if item.solver_backend == "pyscipopt":
+            self.assertEqual(item.solver_result["status"], "optimal")
+            self.assertIn("objective_value", item.solver_result)
+            self.assertTrue(
+                any(row["skill_node"] == "edge_cases" for row in item.solver_result["selected_u"])
+            )
+
+    @unittest.skipUnless(_solve_joint_with_pyscipopt([], target_count=0, min_skill_coverage={}) is not None, "PySCIPOpt is unavailable")
+    def test_pyscipopt_does_not_model_artifact_mask_constraints(self):
+        seed = make_seed("semantic-core-task", "Rewrite a JSON task instruction and verifier.")
+        profile = extract_skill_profile(seed)
+        instruction_only_candidate = EnvsForgePlanItem(
+            seed=seed,
+            profile=profile,
+            pass_rate=0.5,
+            frontier_score=0.95,
+            band="frontier",
+            projection="diversify_frontier",
+            target_difficulty="medium",
+            sample_index=0,
+            projection_policy="joint_optimization",
+            predicted_frontier_score=0.95,
+            artifact_edit_mask=ArtifactEditMask(
+                required_artifacts=("instruction",),
+                optional_artifacts=(),
+                operators={"instruction": ("same_difficulty_reframe",)},
+            ),
+        )
+        synchronized_candidate = EnvsForgePlanItem(
+            seed=seed,
+            profile=profile,
+            pass_rate=0.5,
+            frontier_score=0.9,
+            band="frontier",
+            projection="diversify_frontier",
+            target_difficulty="medium",
+            sample_index=0,
+            projection_policy="joint_optimization",
+            predicted_frontier_score=0.9,
+            artifact_edit_mask=ArtifactEditMask(
+                required_artifacts=("instruction", "data", "solution", "tests"),
+                optional_artifacts=(),
+                operators={
+                    "instruction": ("same_difficulty_reframe",),
+                    "data": ("replace_fixtures",),
+                    "solution": ("update_expected_logic",),
+                    "tests": ("update_expected_outputs",),
+                },
+            ),
+        )
+
+        solution = _solve_joint_with_pyscipopt(
+            [instruction_only_candidate, synchronized_candidate],
+            target_count=1,
+            min_skill_coverage={},
+        )
+
+        self.assertIsNotNone(solution)
+        self.assertEqual(solution[0].artifact_edit_mask.required_artifacts, ("instruction",))
+
     def test_build_envs_forge_prompt_contains_projection_contract_and_full_artifact_requirements(self):
         seed = make_seed("systemd-log-monitoring", "Configure systemd service, timer, journald logs, and logrotate.")
         item = EnvsForgePlanItem(
@@ -189,6 +348,10 @@ class EnvsForgeTests(unittest.TestCase):
         self.assertIn("environment/Dockerfile", prompt)
         self.assertIn("Keep the generated artifact small", prompt)
         self.assertIn("Do not modify apt sources", prompt)
+        self.assertIn("Artifact edit mask", prompt)
+        self.assertIn("Skill subgraph", prompt)
+        self.assertIn("required_artifacts", prompt)
+        self.assertIn("allowed_added_nodes", prompt)
 
     def test_load_rewards_from_harbor_result_maps_trial_names_to_seed_names(self):
         with tempfile.TemporaryDirectory() as tmp:

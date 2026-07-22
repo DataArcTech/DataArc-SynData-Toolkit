@@ -18,8 +18,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sdgsystem.agentic_data.envs_forge import (  # noqa: E402
+    ArtifactEditMask,
     EnvsForgePlanItem,
+    SkillSubgraph,
+    artifact_edit_mask_for_projection,
     build_envs_forge_prompt,
+    build_skill_subgraph,
     load_rewards_from_harbor_result,
     plan_envs_forge_batch,
 )
@@ -90,7 +94,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-seeds", type=int, default=None)
     parser.add_argument("--task-names", nargs="+", default=None)
     parser.add_argument("--synthesis-model", default="deepseek-v4-flash")
-    parser.add_argument("--projection-policy", choices=["band_rule", "calibrated_transfer"], default="band_rule")
+    parser.add_argument("--projection-policy", choices=["band_rule", "calibrated_transfer", "joint_optimization"], default="band_rule")
+    parser.add_argument("--min-skill-coverage", action="append", default=[])
     parser.add_argument("--downstream-model", default="openai/qwen3-8b")
     parser.add_argument("--completion-max-tokens", type=int, default=20000)
     parser.add_argument("--request-timeout", type=int, default=600)
@@ -121,13 +126,16 @@ def main() -> None:
 
     rewards = load_performance_rewards(args.performance_result)
     seeds = discover_seed_tasks(source_root, task_names=args.task_names, limit=args.limit_seeds)
+    min_skill_coverage = parse_count_constraints(args.min_skill_coverage)
     plan = plan_envs_forge_batch(
         seeds,
         rewards_by_seed=rewards,
         target_count=args.target_count,
         projection_policy=args.projection_policy,
+        min_skill_coverage=min_skill_coverage,
     )
     write_json(method_dir / "envs_forge_plan.json", [plan_item_to_json(item) for item in plan])
+    write_json(method_dir / "envs_forge_solver_result.json", batch_solver_result_to_json(plan))
     print_plan(plan, method_dir)
     if args.dry_run:
         return
@@ -187,6 +195,8 @@ def main() -> None:
         "target_count": args.target_count,
         "eval_root": str(eval_root),
         "projection_policy": args.projection_policy,
+        "optimization_formulation": single_value(item.optimization_formulation for item in plan),
+        "min_skill_coverage": min_skill_coverage,
         "synthesis_model": args.synthesis_model,
         "downstream_model": args.downstream_model,
     }
@@ -382,6 +392,15 @@ def materialize_and_validate_record(
                 metadata.setdefault("envs_forge_predicted_pass_rate", item.predicted_pass_rate)
             if item.predicted_frontier_score is not None:
                 metadata.setdefault("envs_forge_predicted_frontier_score", item.predicted_frontier_score)
+            if item.solver_backend:
+                metadata.setdefault("envs_forge_solver_backend", item.solver_backend)
+            if item.optimization_formulation:
+                metadata.setdefault("envs_forge_optimization_formulation", item.optimization_formulation)
+            optimization_label = (item.solver_result or {}).get("optimization_formulation_label")
+            if optimization_label:
+                metadata.setdefault("envs_forge_optimization_formulation_label", optimization_label)
+            metadata.setdefault("envs_forge_artifact_edit_mask", resolved_artifact_edit_mask(item).as_json())
+            metadata.setdefault("envs_forge_skill_subgraph", resolved_skill_subgraph(item).as_json())
             metadata.setdefault("augmentation_model", model)
             metadata.setdefault("date_created", datetime.now(timezone.utc).date().isoformat())
             if repair_index is not None:
@@ -558,6 +577,12 @@ def plan_item_to_json(item: EnvsForgePlanItem) -> dict[str, Any]:
         "sample_index": item.sample_index,
         "predicted_pass_rate": item.predicted_pass_rate,
         "predicted_frontier_score": item.predicted_frontier_score,
+        "optimization_formulation": item.optimization_formulation,
+        "optimization_formulation_label": (item.solver_result or {}).get("optimization_formulation_label"),
+        "solver_backend": item.solver_backend,
+        "solver_result": item.solver_result,
+        "artifact_edit_mask": resolved_artifact_edit_mask(item).as_json(),
+        "skill_subgraph": resolved_skill_subgraph(item).as_json(),
         "skills": {
             "domains": item.profile.domains,
             "tools": item.profile.tools,
@@ -565,6 +590,59 @@ def plan_item_to_json(item: EnvsForgePlanItem) -> dict[str, Any]:
             "operations": item.profile.operations,
             "constraints": item.profile.constraints,
         },
+    }
+
+
+def resolved_artifact_edit_mask(item: EnvsForgePlanItem) -> ArtifactEditMask:
+    return item.artifact_edit_mask or artifact_edit_mask_for_projection(item.projection)
+
+
+def resolved_skill_subgraph(item: EnvsForgePlanItem) -> SkillSubgraph:
+    return item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+
+
+def batch_solver_result_to_json(plan: list[EnvsForgePlanItem]) -> dict[str, Any]:
+    solver_items = [item for item in plan if item.solver_result]
+    if not solver_items:
+        return {"backend": None, "selected_x": [], "selected_u": []}
+
+    first = solver_items[0].solver_result or {}
+    selected_x = []
+    selected_u = []
+    for item in solver_items:
+        result = item.solver_result or {}
+        x_payload = result.get("selected_x")
+        if isinstance(x_payload, dict):
+            selected_x.append(x_payload)
+            candidate_index = x_payload.get("candidate_index")
+        else:
+            candidate_index = None
+        u_payload = result.get("selected_u")
+        if isinstance(u_payload, list):
+            for row in u_payload:
+                if not isinstance(row, dict):
+                    continue
+                selected_u.append(
+                    {
+                        "candidate_index": candidate_index,
+                        "seed_task": item.seed.name,
+                        "projection": item.projection,
+                        **row,
+                    }
+                )
+
+    return {
+        "backend": first.get("backend"),
+        "optimization_formulation": first.get("optimization_formulation"),
+        "optimization_formulation_label": first.get("optimization_formulation_label"),
+        "status": first.get("status"),
+        "objective_value": first.get("objective_value"),
+        "target_count": first.get("target_count"),
+        "candidate_count": first.get("candidate_count"),
+        "skill_nodes": first.get("skill_nodes"),
+        "min_skill_coverage": first.get("min_skill_coverage"),
+        "selected_x": selected_x,
+        "selected_u": selected_u,
     }
 
 
@@ -589,6 +667,31 @@ def failure_record(item: EnvsForgePlanItem, error: str) -> dict[str, Any]:
 
 def print_plan(plan: list[EnvsForgePlanItem], method_dir: Path) -> None:
     print(json.dumps({"output_dir": str(method_dir), "planned": [plan_item_to_json(item) for item in plan]}, indent=2), flush=True)
+
+
+def parse_count_constraints(values: list[str]) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError(f"Count constraint must use name=count format: {value}")
+        name, count_text = value.split("=", 1)
+        name = name.strip()
+        if not name:
+            raise ValueError(f"Count constraint name cannot be empty: {value}")
+        count = int(count_text)
+        if count < 0:
+            raise ValueError(f"Count constraint must be non-negative: {value}")
+        result[name] = count
+    return result
+
+
+def single_value(values) -> Any:
+    unique = sorted({value for value in values if value})
+    if not unique:
+        return None
+    if len(unique) == 1:
+        return unique[0]
+    return unique
 
 
 def task_directory_name(seed_name: str, artifact_name: str, sample_index: int, repair_index: int | None) -> str:

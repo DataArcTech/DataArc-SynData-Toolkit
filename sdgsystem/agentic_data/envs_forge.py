@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 from typing import Sequence
 
@@ -19,6 +20,10 @@ CALIBRATED_TIE_BREAK: dict[str, int] = {
     "increase_complexity": 1,
     "reduce_complexity": 2,
 }
+EXACT_ENUMERATION_LIMIT = 24
+SKILL_NODE_PENALTY = 1e-6
+ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION = "binary_integer_programming"
+ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION_LABEL = "0-1 integer programming"
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,48 @@ class SkillProfile:
 
 
 @dataclass(frozen=True)
+class ArtifactEditMask:
+    required_artifacts: tuple[str, ...]
+    optional_artifacts: tuple[str, ...]
+    operators: dict[str, tuple[str, ...]]
+
+    def as_json(self) -> dict[str, object]:
+        return {
+            "required_artifacts": self.required_artifacts,
+            "optional_artifacts": self.optional_artifacts,
+            "operators": self.operators,
+        }
+
+
+@dataclass(frozen=True)
+class SkillEdge:
+    source: str
+    target: str
+    relation: str
+
+    def as_json(self) -> dict[str, str]:
+        return {"source": self.source, "target": self.target, "relation": self.relation}
+
+
+@dataclass(frozen=True)
+class SkillSubgraph:
+    nodes: tuple[str, ...]
+    edges: tuple[SkillEdge, ...]
+    preserve_nodes: tuple[str, ...]
+    allowed_added_nodes: tuple[str, ...]
+    allowed_removed_nodes: tuple[str, ...]
+
+    def as_json(self) -> dict[str, object]:
+        return {
+            "nodes": self.nodes,
+            "edges": tuple(edge.as_json() for edge in self.edges),
+            "preserve_nodes": self.preserve_nodes,
+            "allowed_added_nodes": self.allowed_added_nodes,
+            "allowed_removed_nodes": self.allowed_removed_nodes,
+        }
+
+
+@dataclass(frozen=True)
 class EnvsForgePlanItem:
     seed: TerminalBenchSeedTask
     profile: SkillProfile
@@ -53,6 +100,11 @@ class EnvsForgePlanItem:
     projection_policy: str = "band_rule"
     predicted_pass_rate: float | None = None
     predicted_frontier_score: float | None = None
+    artifact_edit_mask: ArtifactEditMask | None = None
+    skill_subgraph: SkillSubgraph | None = None
+    solver_backend: str | None = None
+    solver_result: dict[str, object] | None = None
+    optimization_formulation: str | None = None
 
 
 KEYWORDS: dict[str, dict[str, tuple[str, ...]]] = {
@@ -128,6 +180,76 @@ def select_calibrated_projection(
     return projection, predicted_pass_rate, learning_frontier_score(predicted_pass_rate, target=target, sigma=sigma)
 
 
+def artifact_edit_mask_for_projection(projection: str) -> ArtifactEditMask:
+    if projection == "increase_complexity":
+        return ArtifactEditMask(
+            required_artifacts=("instruction", "data", "solution", "tests"),
+            optional_artifacts=("environment", "helper_files"),
+            operators={
+                "instruction": ("add_constraints", "state_edge_cases", "tighten_output_contract"),
+                "data": ("add_edge_cases", "increase_fixture_size", "change_schema"),
+                "solution": ("update_algorithm", "handle_new_constraints"),
+                "tests": ("strengthen_verifier", "check_edge_cases", "check_deterministic_outputs"),
+                "environment": ("reuse_or_pin_dependencies",),
+                "helper_files": ("add_grader_or_fixture_helpers",),
+            },
+        )
+    if projection == "reduce_complexity":
+        return ArtifactEditMask(
+            required_artifacts=("instruction", "data", "solution", "tests", "environment"),
+            optional_artifacts=("helper_files",),
+            operators={
+                "instruction": ("split_secondary_systems", "define_bridge_task", "make_hidden_assumptions_explicit"),
+                "data": ("replace_live_system_with_fixture", "shrink_fixture", "make_inputs_deterministic"),
+                "solution": ("rewrite_solution_for_bridge_task", "remove_privileged_operations"),
+                "tests": ("verify_core_skill_only", "add_boundary_cases", "write_reward_on_failure"),
+                "environment": ("simplify_environment", "remove_unneeded_services", "pin_minimal_runtime"),
+                "helper_files": ("add_small_fixture_generator_or_grader",),
+            },
+        )
+    if projection != "diversify_frontier":
+        raise ValueError(f"Unknown Envs-FORGE projection: {projection}")
+    return ArtifactEditMask(
+        required_artifacts=("instruction", "data", "solution", "tests"),
+        optional_artifacts=("environment", "helper_files"),
+        operators={
+            "instruction": ("same_difficulty_reframe", "change_concrete_requirements"),
+            "data": ("replace_fixtures", "change_values", "preserve_fixture_scale"),
+            "solution": ("update_expected_logic", "preserve_solution_shape"),
+            "tests": ("update_expected_outputs", "preserve_grading_granularity"),
+            "environment": ("reuse_seed_runtime",),
+            "helper_files": ("update_grader_or_fixture_helpers",),
+        },
+    )
+
+
+def build_skill_subgraph(profile: SkillProfile, projection: str) -> SkillSubgraph:
+    nodes = _unique(profile.as_tags() or ("general_terminal",))
+    edges = _skill_edges(profile)
+    if projection == "reduce_complexity":
+        preserve_nodes = _unique((*profile.domains, *profile.artifacts, *profile.operations))
+        allowed_added_nodes = ("file_level_simulation", "deterministic_fixture")
+        removable = {"systemd", "docker", "scheduling", "concurrency", "atomicity"}
+        allowed_removed_nodes = tuple(node for node in nodes if node in removable)
+    elif projection == "increase_complexity":
+        preserve_nodes = nodes
+        allowed_added_nodes = ("edge_cases", "structured_output", "deterministic_sorting")
+        allowed_removed_nodes = ()
+    elif projection == "diversify_frontier":
+        preserve_nodes = nodes
+        allowed_added_nodes = ("alternate_fixture", "neighboring_constraint")
+        allowed_removed_nodes = ()
+    else:
+        raise ValueError(f"Unknown Envs-FORGE projection: {projection}")
+    return SkillSubgraph(
+        nodes=nodes,
+        edges=edges,
+        preserve_nodes=preserve_nodes or nodes,
+        allowed_added_nodes=allowed_added_nodes,
+        allowed_removed_nodes=allowed_removed_nodes,
+    )
+
+
 def extract_skill_profile(seed: TerminalBenchSeedTask) -> SkillProfile:
     text = "\n".join([seed.instruction, seed.task_toml, *seed.files.values()]).lower()
     return SkillProfile(
@@ -150,9 +272,10 @@ def plan_envs_forge_batch(
     sigma: float = 0.2,
     projection_policy: str = "band_rule",
     action_shifts: dict[str, float] | None = None,
+    min_skill_coverage: dict[str, int] | None = None,
 ) -> list[EnvsForgePlanItem]:
-    if projection_policy not in {"band_rule", "calibrated_transfer"}:
-        raise ValueError("projection_policy must be 'band_rule' or 'calibrated_transfer'")
+    if projection_policy not in {"band_rule", "calibrated_transfer", "joint_optimization"}:
+        raise ValueError("projection_policy must be 'band_rule', 'calibrated_transfer', or 'joint_optimization'")
     rewards_by_seed = rewards_by_seed or {}
     candidates: list[EnvsForgePlanItem] = []
     for seed in seeds:
@@ -173,11 +296,31 @@ def plan_envs_forge_batch(
             if reward_values:
                 frontier_score = predicted_frontier_score
             target_difficulty = target_difficulty_for_projection(projection)
+        elif projection_policy == "joint_optimization":
+            for projection in PROJECTIONS:
+                predicted_pass_rate = _clip_probability(pass_rate + (action_shifts or DEFAULT_ACTION_SHIFTS).get(projection, 0.0))
+                predicted_frontier_score = learning_frontier_score(predicted_pass_rate, target=target, sigma=sigma)
+                candidates.append(
+                    _make_plan_item(
+                        seed=seed,
+                        profile=profile,
+                        pass_rate=pass_rate,
+                        frontier_score=predicted_frontier_score,
+                        band=band,
+                        projection=projection,
+                        target_difficulty=target_difficulty_for_projection(projection),
+                        sample_index=0,
+                        projection_policy=projection_policy,
+                        predicted_pass_rate=predicted_pass_rate,
+                        predicted_frontier_score=predicted_frontier_score,
+                    )
+                )
+            continue
         else:
             projection = projection_for_band(band)
             target_difficulty = target_difficulty_for_band(band)
         candidates.append(
-            EnvsForgePlanItem(
+            _make_plan_item(
                 seed=seed,
                 profile=profile,
                 pass_rate=pass_rate,
@@ -192,11 +335,18 @@ def plan_envs_forge_batch(
             )
         )
 
-    ordered = _balanced_order(candidates)
+    if projection_policy == "joint_optimization":
+        ordered = _solve_joint_projection_plan(
+            candidates,
+            target_count=target_count,
+            min_skill_coverage=min_skill_coverage or {},
+        )
+    else:
+        ordered = _balanced_order(candidates)
     selected: list[EnvsForgePlanItem] = []
     for index, item in enumerate(ordered[: max(0, target_count)]):
         selected.append(
-            EnvsForgePlanItem(
+            _make_plan_item(
                 seed=item.seed,
                 profile=item.profile,
                 pass_rate=item.pass_rate,
@@ -208,9 +358,385 @@ def plan_envs_forge_batch(
                 projection_policy=item.projection_policy,
                 predicted_pass_rate=item.predicted_pass_rate,
                 predicted_frontier_score=item.predicted_frontier_score,
+                artifact_edit_mask=item.artifact_edit_mask,
+                skill_subgraph=item.skill_subgraph,
+                solver_backend=item.solver_backend,
+                solver_result=item.solver_result,
+                optimization_formulation=item.optimization_formulation,
             )
         )
     return selected
+
+
+def _make_plan_item(
+    *,
+    seed: TerminalBenchSeedTask,
+    profile: SkillProfile,
+    pass_rate: float,
+    frontier_score: float,
+    band: str,
+    projection: str,
+    target_difficulty: str,
+    sample_index: int,
+    projection_policy: str,
+    predicted_pass_rate: float | None = None,
+    predicted_frontier_score: float | None = None,
+    artifact_edit_mask: ArtifactEditMask | None = None,
+    skill_subgraph: SkillSubgraph | None = None,
+    solver_backend: str | None = None,
+    solver_result: dict[str, object] | None = None,
+    optimization_formulation: str | None = None,
+) -> EnvsForgePlanItem:
+    return EnvsForgePlanItem(
+        seed=seed,
+        profile=profile,
+        pass_rate=pass_rate,
+        frontier_score=frontier_score,
+        band=band,
+        projection=projection,
+        target_difficulty=target_difficulty,
+        sample_index=sample_index,
+        projection_policy=projection_policy,
+        predicted_pass_rate=predicted_pass_rate,
+        predicted_frontier_score=predicted_frontier_score,
+        artifact_edit_mask=artifact_edit_mask or artifact_edit_mask_for_projection(projection),
+        skill_subgraph=skill_subgraph or build_skill_subgraph(profile, projection),
+        solver_backend=solver_backend,
+        solver_result=solver_result,
+        optimization_formulation=optimization_formulation or _optimization_formulation_for_policy(projection_policy),
+    )
+
+
+def _solve_joint_projection_plan(
+    candidates: Sequence[EnvsForgePlanItem],
+    *,
+    target_count: int,
+    min_skill_coverage: dict[str, int],
+) -> list[EnvsForgePlanItem]:
+    count = min(max(0, target_count), len({item.seed.name for item in candidates}))
+    if count == 0:
+        return []
+
+    pyscipopt_solution = _solve_joint_with_pyscipopt(
+        candidates,
+        target_count=count,
+        min_skill_coverage=min_skill_coverage,
+    )
+    if pyscipopt_solution is not None:
+        return _with_solver_backend(pyscipopt_solution, "pyscipopt")
+
+    if len(candidates) <= EXACT_ENUMERATION_LIMIT:
+        exact_solution = _solve_joint_with_exact_enumeration(
+            candidates,
+            target_count=count,
+            min_skill_coverage=min_skill_coverage,
+        )
+        if exact_solution is not None:
+            return _with_solver_backend(exact_solution, "exact_enumeration")
+
+    return _with_solver_backend(
+        _solve_joint_with_greedy(
+            candidates,
+            target_count=count,
+            min_skill_coverage=min_skill_coverage,
+        ),
+        "greedy",
+    )
+
+
+def _solve_joint_with_pyscipopt(
+    candidates: Sequence[EnvsForgePlanItem],
+    *,
+    target_count: int,
+    min_skill_coverage: dict[str, int],
+) -> list[EnvsForgePlanItem] | None:
+    try:
+        from pyscipopt import Model, quicksum  # type: ignore
+    except Exception:
+        return None
+
+    model = Model("envs_forge_alpha")
+    model.hideOutput()
+    variables = [model.addVar(vtype="B", name=f"x_{index}") for index, _item in enumerate(candidates)]
+    skill_nodes = _skill_node_universe(candidates, min_skill_coverage)
+    skill_variables = {
+        (index, node): model.addVar(vtype="B", name=f"u_{index}_{node}")
+        for index, _item in enumerate(candidates)
+        for node in skill_nodes
+    }
+    model.addCons(quicksum(variables) == target_count)
+    for seed_name in sorted({item.seed.name for item in candidates}):
+        model.addCons(quicksum(variables[index] for index, item in enumerate(candidates) if item.seed.name == seed_name) <= 1)
+    for index, item in enumerate(candidates):
+        required_nodes = _required_skill_nodes(item)
+        optional_nodes = _optional_skill_nodes(item)
+        for node in skill_nodes:
+            skill_variable = skill_variables[index, node]
+            if node in required_nodes:
+                model.addCons(skill_variable == variables[index])
+            elif node in optional_nodes:
+                model.addCons(skill_variable <= variables[index])
+            else:
+                model.addCons(skill_variable == 0)
+    for skill, minimum in min_skill_coverage.items():
+        model.addCons(quicksum(skill_variables[index, skill] for index, _item in enumerate(candidates)) >= minimum)
+    optional_skill_penalty = quicksum(
+        skill_variables[index, node]
+        for index, item in enumerate(candidates)
+        for node in _optional_skill_nodes(item)
+        if node in skill_nodes
+    )
+    model.setObjective(
+        quicksum(_candidate_objective(item) * variables[index] for index, item in enumerate(candidates))
+        - SKILL_NODE_PENALTY * optional_skill_penalty,
+        "maximize",
+    )
+    model.optimize()
+    if model.getStatus() != "optimal":
+        return None
+    objective_value = float(model.getObjVal())
+    solver_result_base = {
+        "backend": "pyscipopt",
+        "optimization_formulation": ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION,
+        "optimization_formulation_label": ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION_LABEL,
+        "status": str(model.getStatus()),
+        "objective_value": objective_value,
+        "target_count": target_count,
+        "candidate_count": len(candidates),
+        "skill_nodes": skill_nodes,
+        "min_skill_coverage": dict(sorted(min_skill_coverage.items())),
+    }
+    selected: list[EnvsForgePlanItem] = []
+    for index, item in enumerate(candidates):
+        if model.getVal(variables[index]) <= 0.5:
+            continue
+        selected_nodes = {
+            node
+            for node in skill_nodes
+            if model.getVal(skill_variables[index, node]) > 0.5
+        }
+        solver_result = {
+            **solver_result_base,
+            "selected_x": {
+                "candidate_index": index,
+                "seed_task": item.seed.name,
+                "projection": item.projection,
+                "objective": _candidate_objective(item),
+                "x": 1.0,
+            },
+            "selected_u": [
+                {"skill_node": node, "u": 1.0}
+                for node in sorted(selected_nodes)
+            ],
+        }
+        selected.append(_with_selected_skill_nodes(item, selected_nodes, solver_result=solver_result))
+    return selected
+
+
+def _solve_joint_with_exact_enumeration(
+    candidates: Sequence[EnvsForgePlanItem],
+    *,
+    target_count: int,
+    min_skill_coverage: dict[str, int],
+) -> list[EnvsForgePlanItem] | None:
+    best: tuple[float, tuple[str, ...], tuple[EnvsForgePlanItem, ...]] | None = None
+    for combo in combinations(candidates, target_count):
+        if len({item.seed.name for item in combo}) != len(combo):
+            continue
+        selected_with_skills = _apply_skill_graph_selection(combo, min_skill_coverage)
+        if selected_with_skills is None:
+            continue
+        objective = sum(_candidate_objective(item) for item in selected_with_skills)
+        tie_break = tuple(f"{item.seed.name}:{item.projection}" for item in sorted(selected_with_skills, key=lambda value: value.seed.name))
+        score = (objective, tie_break, tuple(selected_with_skills))
+        if best is None or score[:2] > best[:2]:
+            best = score
+    return list(best[2]) if best is not None else None
+
+
+def _solve_joint_with_greedy(
+    candidates: Sequence[EnvsForgePlanItem],
+    *,
+    target_count: int,
+    min_skill_coverage: dict[str, int],
+) -> list[EnvsForgePlanItem]:
+    selected: list[EnvsForgePlanItem] = []
+    ordered = sorted(candidates, key=_candidate_objective, reverse=True)
+
+    for skill, minimum in min_skill_coverage.items():
+        while _coverage_count(selected, lambda item, value=skill: _candidate_can_cover_skill(item, value)) < minimum:
+            candidate = _best_available(ordered, selected, lambda item, value=skill: _candidate_can_cover_skill(item, value))
+            if candidate is None:
+                break
+            selected.append(candidate)
+
+    for candidate in ordered:
+        if len(selected) >= target_count:
+            break
+        if _candidate_available(candidate, selected):
+            selected.append(candidate)
+    selected_with_skills = _apply_skill_graph_selection(selected[:target_count], min_skill_coverage)
+    return selected_with_skills or selected[:target_count]
+
+
+def _candidate_objective(item: EnvsForgePlanItem) -> float:
+    if item.predicted_frontier_score is not None:
+        return float(item.predicted_frontier_score)
+    return float(item.frontier_score)
+
+
+def _candidate_can_cover_skill(item: EnvsForgePlanItem, skill: str) -> bool:
+    return skill in _required_skill_nodes(item) | _optional_skill_nodes(item)
+
+
+def _required_skill_nodes(item: EnvsForgePlanItem) -> set[str]:
+    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+    return (set(subgraph.nodes) - set(subgraph.allowed_removed_nodes)) | set(subgraph.preserve_nodes)
+
+
+def _optional_skill_nodes(item: EnvsForgePlanItem) -> set[str]:
+    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+    return set(subgraph.allowed_added_nodes) | set(subgraph.allowed_removed_nodes)
+
+
+def _skill_node_universe(
+    candidates: Sequence[EnvsForgePlanItem],
+    min_skill_coverage: dict[str, int],
+) -> tuple[str, ...]:
+    nodes: set[str] = set(min_skill_coverage)
+    for item in candidates:
+        nodes.update(_required_skill_nodes(item))
+        nodes.update(_optional_skill_nodes(item))
+    return tuple(sorted(nodes))
+
+
+def _apply_skill_graph_selection(
+    items: Sequence[EnvsForgePlanItem],
+    min_skill_coverage: dict[str, int],
+) -> list[EnvsForgePlanItem] | None:
+    selected_nodes_by_index = {index: _required_skill_nodes(item) for index, item in enumerate(items)}
+    for skill, minimum in min_skill_coverage.items():
+        current = sum(1 for nodes in selected_nodes_by_index.values() if skill in nodes)
+        while current < minimum:
+            candidate_index = _best_skill_node_host(items, selected_nodes_by_index, skill)
+            if candidate_index is None:
+                return None
+            selected_nodes_by_index[candidate_index].add(skill)
+            current += 1
+    return [
+        _with_selected_skill_nodes(item, selected_nodes_by_index[index])
+        for index, item in enumerate(items)
+    ]
+
+
+def _best_skill_node_host(
+    items: Sequence[EnvsForgePlanItem],
+    selected_nodes_by_index: dict[int, set[str]],
+    skill: str,
+) -> int | None:
+    best: tuple[float, str, int] | None = None
+    for index, item in enumerate(items):
+        if skill in selected_nodes_by_index[index] or skill not in _optional_skill_nodes(item):
+            continue
+        score = (_candidate_objective(item), item.seed.name, index)
+        if best is None or score > best:
+            best = score
+    return best[2] if best is not None else None
+
+
+def _with_selected_skill_nodes(
+    item: EnvsForgePlanItem,
+    selected_nodes: set[str],
+    solver_result: dict[str, object] | None = None,
+) -> EnvsForgePlanItem:
+    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+    ordered_nodes = _ordered_selected_nodes(subgraph, selected_nodes)
+    selected_node_set = set(ordered_nodes)
+    selected_subgraph = SkillSubgraph(
+        nodes=ordered_nodes,
+        edges=tuple(edge for edge in subgraph.edges if edge.source in selected_node_set and edge.target in selected_node_set),
+        preserve_nodes=subgraph.preserve_nodes,
+        allowed_added_nodes=subgraph.allowed_added_nodes,
+        allowed_removed_nodes=subgraph.allowed_removed_nodes,
+    )
+    return _make_plan_item(
+        seed=item.seed,
+        profile=item.profile,
+        pass_rate=item.pass_rate,
+        frontier_score=item.frontier_score,
+        band=item.band,
+        projection=item.projection,
+        target_difficulty=item.target_difficulty,
+        sample_index=item.sample_index,
+        projection_policy=item.projection_policy,
+        predicted_pass_rate=item.predicted_pass_rate,
+        predicted_frontier_score=item.predicted_frontier_score,
+        artifact_edit_mask=item.artifact_edit_mask,
+        skill_subgraph=selected_subgraph,
+        solver_backend=item.solver_backend,
+        solver_result=solver_result or item.solver_result,
+        optimization_formulation=item.optimization_formulation,
+    )
+
+
+def _ordered_selected_nodes(subgraph: SkillSubgraph, selected_nodes: set[str]) -> tuple[str, ...]:
+    order = [*subgraph.nodes, *subgraph.allowed_added_nodes, *subgraph.allowed_removed_nodes]
+    ordered = [node for node in _unique(order) if node in selected_nodes]
+    leftovers = sorted(selected_nodes - set(ordered))
+    return tuple([*ordered, *leftovers])
+
+
+def _coverage_count(items: Sequence[EnvsForgePlanItem], predicate) -> int:
+    return sum(1 for item in items if predicate(item))
+
+
+def _best_available(candidates: Sequence[EnvsForgePlanItem], selected: Sequence[EnvsForgePlanItem], predicate) -> EnvsForgePlanItem | None:
+    for candidate in candidates:
+        if predicate(candidate) and _candidate_available(candidate, selected):
+            return candidate
+    return None
+
+
+def _candidate_available(candidate: EnvsForgePlanItem, selected: Sequence[EnvsForgePlanItem]) -> bool:
+    return candidate.seed.name not in {item.seed.name for item in selected}
+
+
+def _with_solver_backend(items: Sequence[EnvsForgePlanItem], backend: str) -> list[EnvsForgePlanItem]:
+    result: list[EnvsForgePlanItem] = []
+    for item in items:
+        solver_result = dict(item.solver_result or {})
+        solver_result.setdefault("backend", backend)
+        formulation = item.optimization_formulation or _optimization_formulation_for_policy(item.projection_policy)
+        if formulation:
+            solver_result.setdefault("optimization_formulation", formulation)
+            solver_result.setdefault("optimization_formulation_label", ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION_LABEL)
+        result.append(
+            _make_plan_item(
+            seed=item.seed,
+            profile=item.profile,
+            pass_rate=item.pass_rate,
+            frontier_score=item.frontier_score,
+            band=item.band,
+            projection=item.projection,
+            target_difficulty=item.target_difficulty,
+            sample_index=item.sample_index,
+            projection_policy=item.projection_policy,
+            predicted_pass_rate=item.predicted_pass_rate,
+            predicted_frontier_score=item.predicted_frontier_score,
+            artifact_edit_mask=item.artifact_edit_mask,
+            skill_subgraph=item.skill_subgraph,
+            solver_backend=backend,
+            solver_result=solver_result,
+            optimization_formulation=formulation,
+        )
+        )
+    return result
+
+
+def _optimization_formulation_for_policy(projection_policy: str) -> str | None:
+    if projection_policy == "joint_optimization":
+        return ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION
+    return None
 
 
 def _lookup_seed_rewards(seed_name: str, rewards_by_seed: dict[str, Sequence[float]]) -> Sequence[float]:
@@ -272,6 +798,8 @@ def target_difficulty_for_band(band: str) -> str:
 def build_envs_forge_prompt(item: EnvsForgePlanItem, *, model: str) -> str:
     seed_files = {path: _shorten(text, 3500) for path, text in item.seed.files.items() if _include_seed_file(path)}
     projection_instruction = _projection_instruction(item.projection)
+    artifact_edit_mask = item.artifact_edit_mask or artifact_edit_mask_for_projection(item.projection)
+    skill_subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
     payload = {
         "seed": item.seed.name,
         "band": item.band,
@@ -287,7 +815,11 @@ def build_envs_forge_prompt(item: EnvsForgePlanItem, *, model: str) -> str:
             "operations": item.profile.operations,
             "constraints": item.profile.constraints,
         },
+        "artifact_edit_mask": artifact_edit_mask.as_json(),
+        "skill_subgraph": skill_subgraph.as_json(),
     }
+    if item.solver_backend:
+        payload["solver_backend"] = item.solver_backend
     if item.predicted_pass_rate is not None:
         payload["predicted_pass_rate_after_projection"] = round(item.predicted_pass_rate, 4)
     if item.predicted_frontier_score is not None:
@@ -310,7 +842,18 @@ Projection decision:
 Projection instruction:
 {projection_instruction}
 
+Artifact edit mask:
+{json.dumps(artifact_edit_mask.as_json(), ensure_ascii=False, indent=2)}
+
+Skill subgraph:
+{json.dumps(skill_subgraph.as_json(), ensure_ascii=False, indent=2)}
+
 The generated task must be internally consistent:
+- Treat artifact_edit_mask.required_artifacts as mandatory synchronized edits. If an artifact is required, change it to match the projected task rather than copying the seed unchanged.
+- Use artifact_edit_mask.operators as the allowed edit operator families for each artifact.
+- Preserve skill_subgraph.preserve_nodes in the generated task.
+- Only add skill nodes that are consistent with skill_subgraph.allowed_added_nodes.
+- For reduce_complexity, you may remove or simulate skill_subgraph.allowed_removed_nodes only when the core preserved nodes remain testable.
 - Rewrite the user-facing task description in instruction.md.
 - Update the reference solution in solution/solve.sh.
 - Update the test runner in tests/test.sh.
@@ -389,6 +932,29 @@ def load_rewards_from_harbor_result(path: str | Path) -> dict[str, list[float]]:
 def _match_category(text: str, keyword_map: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     matched = sorted(label for label, needles in keyword_map.items() if any(needle in text for needle in needles))
     return tuple(matched)
+
+
+def _skill_edges(profile: SkillProfile) -> tuple[SkillEdge, ...]:
+    edges: list[SkillEdge] = []
+    edges.extend(_connect(profile.domains, profile.tools, "uses_tool"))
+    edges.extend(_connect(profile.tools, profile.artifacts, "reads_or_writes"))
+    edges.extend(_connect(profile.artifacts, profile.operations, "operation_on_artifact"))
+    edges.extend(_connect(profile.operations, profile.constraints, "constrained_by"))
+    return tuple(edges)
+
+
+def _connect(sources: Sequence[str], targets: Sequence[str], relation: str) -> tuple[SkillEdge, ...]:
+    return tuple(SkillEdge(source=source, target=target, relation=relation) for source in sources for target in targets)
+
+
+def _unique(items: Sequence[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return tuple(result)
 
 
 def _balanced_order(items: Sequence[EnvsForgePlanItem]) -> list[EnvsForgePlanItem]:
