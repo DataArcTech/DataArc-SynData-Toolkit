@@ -1,9 +1,12 @@
 """Job managers for handling SDG and training job lifecycle."""
 import uuid
+import logging
 from typing import Optional, Callable, Any
 from concurrent.futures import ThreadPoolExecutor
 
 from .progress import SDGProgressReporter, TrainProgressReporter
+
+logger = logging.getLogger(__name__)
 
 
 class SDGJobManager:
@@ -23,7 +26,12 @@ class SDGJobManager:
         return self._current_service
 
     def set_service(self, service: Any):
-        """Store the SDG service for later refinement."""
+        """Store the SDG service for later refinement. Cleans up previous service."""
+        if self._current_service is not None and hasattr(self._current_service, '_cleanup_models'):
+            try:
+                self._current_service._cleanup_models()
+            except Exception as e:
+                logger.warning(f"Failed to cleanup previous SDG service models: {e}")
         self._current_service = service
 
     def create_job(self, task_type: str, task_name: str) -> SDGProgressReporter:
