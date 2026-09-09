@@ -6,6 +6,7 @@
 [![Framework: uv](https://img.shields.io/badge/Package_Manager-uv-42b983.svg)](https://github.com/astral-sh/uv)
 [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-ffa000.svg)](https://docs.pydantic.dev/)
 [![ACL 2026 Demo](https://img.shields.io/badge/ACL%202026-System%20Demonstrations-b31b1b.svg)](https://aclanthology.org/2026.acl-demo.31/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
 <p>
   <a href="https://discord.gg/u48SJ9HEbd">
@@ -138,6 +139,7 @@ DataArc-SynData-Toolkit/
 ├── verl/                           # 集成的verl训练框架
 ├── docs/                           # 文档
 ├── pyproject.toml
+├── LICENSE                         # Apache License 2.0
 └── README.md
 ```
 
@@ -286,3 +288,7 @@ pnpm dev
     ISBN = "979-8-89176-392-0"
 }
 ```
+
+## :scroll: 许可证
+
+**DataArc SynData Toolkit** 基于 [Apache License 2.0](./LICENSE) 开源。仓库 `verl/` 目录中内置的 [verl](https://github.com/volcengine/verl) 训练框架依照其原始的 Apache License 2.0（版权归 Bytedance Ltd. 及其关联公司所有）进行再分发，详细的第三方声明请参见 [NOTICE](./NOTICE) 与 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。

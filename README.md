@@ -6,6 +6,7 @@
 [![Framework: uv](https://img.shields.io/badge/Package_Manager-uv-42b983.svg)](https://github.com/astral-sh/uv)
 [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-ffa000.svg)](https://docs.pydantic.dev/)
 [![ACL 2026 Demo](https://img.shields.io/badge/ACL%202026-System%20Demonstrations-b31b1b.svg)](https://aclanthology.org/2026.acl-demo.31/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
 <p>
   <a href="https://discord.gg/u48SJ9HEbd">
@@ -137,6 +138,7 @@ DataArc-SynData-Toolkit/
 ├── verl/                           # Integrated verl framework
 ├── docs/                           # Documentation
 ├── pyproject.toml
+├── LICENSE                         # Apache License 2.0
 └── README.md
 ```
 
@@ -286,6 +288,10 @@ If you find **DataArc SynData Toolkit** useful in your research or products, ple
     ISBN = "979-8-89176-392-0"
 }
 ```
+
+## :scroll: License
+
+**DataArc SynData Toolkit** is released under the [Apache License 2.0](./LICENSE). The [verl](https://github.com/volcengine/verl) training framework bundled in the `verl/` directory is redistributed under its original Apache License 2.0 (Copyright Bytedance Ltd. and/or its affiliates). See [NOTICE](./NOTICE) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for attribution details.
 
 ## Star History
 
