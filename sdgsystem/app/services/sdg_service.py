@@ -1,6 +1,7 @@
 """SDG Service wrapper for the pipeline with progress reporting."""
 import os
 import shutil
+import logging
 from typing import Dict, Any, Optional
 
 from ..core.progress import SDGProgressReporter
@@ -8,6 +9,8 @@ from ..api.schemas import SDGJobOutput, SDGJobOutputCounts
 
 from ...configs.config import SDGSConfig
 from ...pipeline import Pipeline
+
+logger = logging.getLogger(__name__)
 
 
 class SDGService:
@@ -51,6 +54,8 @@ class SDGService:
             reporter.complete_phase(output)
 
         except Exception as e:
+            # Cleanup models on generation failure since refinement won't run
+            self._cleanup_models()
             reporter.fail("generation_error", str(e), {"type": type(e).__name__})
             raise
 
@@ -137,9 +142,14 @@ class SDGService:
             # Clear refinement buffers after successful completion
             self._clear_refinement_buffer()
 
+            # Cleanup models and free GPU memory
+            self._cleanup_models()
+
             reporter.complete_phase(output)
 
         except Exception as e:
+            # Cleanup models even on failure to free GPU memory
+            self._cleanup_models()
             reporter.fail("refinement_error", str(e), {"type": type(e).__name__})
             raise
 
@@ -183,6 +193,15 @@ class SDGService:
                 self.config.output_dir,
                 f"{self.config.task_config.name}_{dataset_type}.{self.config.export_format}"
             )
+
+    def _cleanup_models(self):
+        """Release vLLM and other models, free GPU memory."""
+        if self.pipeline is None:
+            return
+        try:
+            self.pipeline._cleanup_models()
+        except Exception as e:
+            logger.warning(f"Failed to cleanup models: {e}")
 
     def _clear_generation_buffer(self):
         """Clear generation phase buffers after successful completion."""

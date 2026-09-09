@@ -71,7 +71,7 @@ export default function ConfigurationPage() {
       domain: config.task.domain || '',
       inputInstruction: config.task.input_instruction || '',
       outputInstruction: config.task.output_instruction || '',
-      parserMethod: config.task.text.local?.parsing.method || '',
+      parserMethod: config.task.text.local?.parsing.method || 'mineru',
       huggingfaceToken: config.task.text.web?.huggingface_token || '',
       datasetLimit: config.task.text.web?.dataset_limit || 5,
       arabicTranslatorModelPath: config.translation.model_path || '',
@@ -94,7 +94,7 @@ export default function ConfigurationPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleValuesChange = (_changedValues: unknown, allValues: Record<string, unknown>) => {
+  const handleValuesChange = (changedValues: Record<string, unknown>, allValues: Record<string, unknown>) => {
     if (isSettingFormValuesRef.current) {
       return
     }
@@ -171,7 +171,7 @@ export default function ConfigurationPage() {
       }
     }
 
-    if (allValues.parserMethod !== undefined) {
+    if (changedValues.parserMethod !== undefined) {
       updates.task = {
         ...(updates.task || config.task),
         text: {
@@ -187,7 +187,7 @@ export default function ConfigurationPage() {
       }
     }
 
-    if (allValues.huggingfaceToken !== undefined || allValues.datasetLimit !== undefined) {
+    if (changedValues.huggingfaceToken !== undefined || changedValues.datasetLimit !== undefined) {
       updates.task = {
         ...(updates.task || config.task),
         text: {

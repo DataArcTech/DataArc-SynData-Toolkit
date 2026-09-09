@@ -1,0 +1,14 @@
+DataArc SynData Toolkit
+Copyright 2025-2026 DataArcTech and International Digital Economy Academy (IDEA)
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file in the root of this repository for the full license text.
+
+This product bundles third-party software that is subject to its own license
+terms. See THIRD_PARTY_NOTICES.md for details.
+
+------------------------------------------------------------------------------
+verl (bundled in the verl/ directory)
+https://github.com/volcengine/verl
+Copyright 2023-2024 Bytedance Ltd. and/or its affiliates
+Licensed under the Apache License, Version 2.0.

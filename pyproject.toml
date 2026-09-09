@@ -3,6 +3,8 @@ name = "DataArc-SynData-Toolkit"
 version = "0.1.0"
 description = "Synthetic Data Generation Platfrom by DataArc"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
 requires-python = "==3.11.13"
 dependencies = [
     # Core SDG dependencies
