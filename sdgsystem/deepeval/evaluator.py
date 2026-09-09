@@ -131,9 +131,12 @@ class DeepEvalEvaluator:
         dataset: Dataset,
         post_trained_outputs: List[str],
         base_outputs: Optional[List[str]] = None
-    ) -> tuple[List[LLMTestCase], List[LLMTestCase]]:
+    ) -> tuple[List[LLMTestCase], List[LLMTestCase], Dict[str, int]]:
         """
         Build DeepEval test cases from dataset and model outputs.
+
+        Samples whose post-trained output is empty are excluded from every metric;
+        samples whose base-model output is empty are excluded from pairwise only.
 
         Args:
             dataset: Test dataset with 'input' and 'output' (ground truth)
@@ -141,7 +144,8 @@ class DeepEvalEvaluator:
             base_outputs: Outputs from base model (for pairwise comparison)
 
         Returns:
-            Tuple of (standard_test_cases, pairwise_test_cases)
+            Tuple of (standard_test_cases, pairwise_test_cases, skipped) where
+            skipped counts dataset samples and the samples excluded for each reason.
         """
         standard_test_cases = []
         pairwise_test_cases = []
@@ -149,6 +153,7 @@ class DeepEvalEvaluator:
         output_instruction = self.config.inference.output_instruction
 
         skipped = 0
+        skipped_base = 0
         for i, sample in enumerate(dataset.samples):
             input_text = sample["input"]
             expected_output = sample["output"]
@@ -176,6 +181,7 @@ class DeepEvalEvaluator:
             if self.config.pairwise.enabled and base_outputs is not None:
                 base_output = base_outputs[i]
                 if not base_output or not base_output.strip():
+                    skipped_base += 1
                     logger.warning(f"Skipping pairwise for sample {i}: empty base model output")
                     continue
                 pairwise_test_cases.append(LLMTestCase(
@@ -187,7 +193,12 @@ class DeepEvalEvaluator:
         if skipped > 0:
             logger.warning(f"Skipped {skipped}/{len(dataset)} samples due to empty model outputs")
 
-        return standard_test_cases, pairwise_test_cases
+        skipped_info = {
+            "dataset_samples": len(dataset),
+            "skipped_empty_post_trained_output": skipped,
+            "skipped_empty_base_output": skipped_base,
+        }
+        return standard_test_cases, pairwise_test_cases, skipped_info
 
     def run(self) -> Dict[str, Any]:
         """
@@ -223,7 +234,7 @@ class DeepEvalEvaluator:
 
         # 4. Build test cases
         logger.info("Building DeepEval test cases...")
-        standard_test_cases, pairwise_test_cases = self.build_test_cases(
+        standard_test_cases, pairwise_test_cases, skipped = self.build_test_cases(
             dataset,
             post_trained_outputs,
             base_outputs
@@ -233,7 +244,7 @@ class DeepEvalEvaluator:
         os.makedirs(self.config.output.dir, exist_ok=True)
 
         # 5. Run each metric individually and save results
-        results = {}
+        results = {"skipped": skipped}
 
         # 5a. Answer Correctness
         if self.config.correctness.enabled:
@@ -243,7 +254,7 @@ class DeepEvalEvaluator:
                 metrics=[self.correctness_metric]
             )
             results["correctness"] = correctness_result
-            self._save_metric_results("correctness", correctness_result)
+            self._save_metric_results("correctness", correctness_result, skipped)
 
         # 5b. Format Compliance
         if self.config.format_compliance.enabled:
@@ -253,7 +264,7 @@ class DeepEvalEvaluator:
                 metrics=[self.format_compliance_metric]
             )
             results["format_compliance"] = format_result
-            self._save_metric_results("format_compliance", format_result)
+            self._save_metric_results("format_compliance", format_result, skipped)
 
         # 5c. Pairwise Preference (uses different test cases)
         if self.config.pairwise.enabled and pairwise_test_cases and self.pairwise_metric:
@@ -265,7 +276,14 @@ class DeepEvalEvaluator:
             results["pairwise"] = pairwise_result
 
             # Parse and print pairwise summary
-            pairwise_summary = self._parse_pairwise_results(pairwise_result)
+            pairwise_summary = {
+                **self._parse_pairwise_results(pairwise_result),
+                "dataset_samples": skipped["dataset_samples"],
+                "skipped_samples": (
+                    skipped["skipped_empty_post_trained_output"]
+                    + skipped["skipped_empty_base_output"]
+                ),
+            }
             results["pairwise_summary"] = pairwise_summary
 
             self._save_pairwise_results(pairwise_result, pairwise_summary)
@@ -306,9 +324,15 @@ class DeepEvalEvaluator:
     def _save_metric_results(
         self,
         metric_name: str,
-        evaluation_result
+        evaluation_result,
+        skipped: Dict[str, int]
     ):
-        """Save metric evaluation results to JSON file."""
+        """Save metric evaluation results to JSON file.
+
+        The summary reports the evaluated sample count next to the dataset size and
+        the number of samples skipped for empty model output, so scores are never
+        mistaken for full-dataset figures.
+        """
         import json
 
         results = []
@@ -330,6 +354,8 @@ class DeepEvalEvaluator:
         summary = {
             "metric": metric_name,
             "total_samples": len(results),
+            "dataset_samples": skipped["dataset_samples"],
+            "skipped_samples": skipped["skipped_empty_post_trained_output"],
             "average_score": sum(scores) / len(scores) if scores else 0,
             "pass_rate": sum(1 for r in results if r["success"]) / len(results) if results else 0
         }
