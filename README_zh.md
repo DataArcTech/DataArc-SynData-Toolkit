@@ -5,6 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Framework: uv](https://img.shields.io/badge/Package_Manager-uv-42b983.svg)](https://github.com/astral-sh/uv)
 [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-ffa000.svg)](https://docs.pydantic.dev/)
+[![ACL 2026 Demo](https://img.shields.io/badge/ACL%202026-System%20Demonstrations-b31b1b.svg)](https://aclanthology.org/2026.acl-demo.31/)
 
 <p>
   <a href="https://discord.gg/u48SJ9HEbd">
@@ -31,7 +32,7 @@
 
 ## :dart: 项目概述
 
-**DataArc SynData Toolkit**是由[数创弧光](https://www.dataarctech.com/)与[粤港澳大湾区数字经济研究院](https://www.idea.edu.cn/)联合开发并开源的合成数据工具集，能够根据使用者需求，通过简单配置文件一步到位合成所需训练数据。
+**DataArc SynData Toolkit**是由[数创弧光](https://www.dataarctech.com/)与[粤港澳大湾区数字经济研究院](https://www.idea.edu.cn/)联合开发并开源的合成数据工具集，能够根据使用者需求，通过简单配置文件一步到位合成所需训练数据。本工具集的论文《DataArc-SynData-Toolkit: A Unified Closed-Loop Framework for Multi-Path, Multimodal, and Multilingual Data Synthesis》已发表于 [ACL 2026 System Demonstrations](https://aclanthology.org/2026.acl-demo.31/)（[PDF](https://aclanthology.org/2026.acl-demo.31.pdf)）。
 
 ## :bulb: 项目特色
 
@@ -84,6 +85,8 @@ https://github.com/user-attachments/assets/4b4d5ae4-d274-4971-a3cb-e9f07e841374
   - **答案正确性**：将模型输出与标准答案进行比较，支持自定义评分标准。
   - **格式合规性**：评估模型输出是否遵循指定的输出格式要求。
   - **成对偏好比较**：比较后训练模型与基础模型，衡量训练效果提升。
+
+[26/09/09] 🎓 我们的论文 **DataArc-SynData-Toolkit: A Unified Closed-Loop Framework for Multi-Path, Multimodal, and Multilingual Data Synthesis** 已发表于 *ACL 2026 (Volume 3: System Demonstrations)*，可在 [ACL Anthology](https://aclanthology.org/2026.acl-demo.31/) 阅读，引用格式见[引用](#page_facing_up-引用)。
 
 > [!TIP]
 >
@@ -254,3 +257,32 @@ pnpm dev
 
 我们欢迎对**DataArc SynData Toolkit**进行改进贡献！
 
+## :page_facing_up: 引用
+
+如果 **DataArc SynData Toolkit** 对您的研究或产品有所帮助，请引用我们发表于 ACL 2026 System Demonstrations 的论文：
+
+```bibtex
+@inproceedings{shi-etal-2026-dataarc,
+    title = "{D}ata{A}rc-{S}yn{D}ata-Toolkit: A Unified Closed-Loop Framework for Multi-Path, Multimodal, and Multilingual Data Synthesis",
+    author = "Shi, Zhichao  and
+      Yang, Cehao  and
+      Zhou, Hao  and
+      Wu, Xiaojun  and
+      Li, Huajie  and
+      Jiang, Xuhui  and
+      Xu, Chengjin  and
+      Wang, Yuanzhuo  and
+      Guo, Jian",
+    editor = "Durrett, Greg  and
+      Jian, Ping",
+    booktitle = "Proceedings of the 64th Annual Meeting of the {A}ssociation for {C}omputational {L}inguistics (Volume 3: System Demonstrations)",
+    month = jul,
+    year = "2026",
+    address = "San Diego, California, United States",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2026.acl-demo.31/",
+    doi = "10.18653/v1/2026.acl-demo.31",
+    pages = "318--326",
+    ISBN = "979-8-89176-392-0"
+}
+```

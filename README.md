@@ -5,6 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Framework: uv](https://img.shields.io/badge/Package_Manager-uv-42b983.svg)](https://github.com/astral-sh/uv)
 [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-ffa000.svg)](https://docs.pydantic.dev/)
+[![ACL 2026 Demo](https://img.shields.io/badge/ACL%202026-System%20Demonstrations-b31b1b.svg)](https://aclanthology.org/2026.acl-demo.31/)
 
 <p>
   <a href="https://discord.gg/u48SJ9HEbd">
@@ -31,7 +32,7 @@
 
 ## :dart: Project Overview
 
-**DataArc SynData Toolkit** is a synthetic data generation toolkit developed and open-sourced by [DataArcTech](https://www.dataarctech.com/) and [International Digital Economy Academy](https://www.idea.edu.cn/). It enables users to generate customized training data in one step through simple configuration files based on their requirements.
+**DataArc SynData Toolkit** is a synthetic data generation toolkit developed and open-sourced by [DataArcTech](https://www.dataarctech.com/) and [International Digital Economy Academy](https://www.idea.edu.cn/). It enables users to generate customized training data in one step through simple configuration files based on their requirements. The toolkit is described in our paper *DataArc-SynData-Toolkit: A Unified Closed-Loop Framework for Multi-Path, Multimodal, and Multilingual Data Synthesis*, published in the [ACL 2026 System Demonstrations track](https://aclanthology.org/2026.acl-demo.31/) ([PDF](https://aclanthology.org/2026.acl-demo.31.pdf)).
 
 ## :bulb: Key Features
 
@@ -83,6 +84,8 @@ A few lines of code deliver over 20% performance improvements.
   - **Answer Correctness**: Compare model output against ground truth with customizable rubrics.
   - **Pairwise Preference**: Compare post-trained model vs base model to measure improvement.
   - **Format Compliance**: Evaluate adherence to output format instructions.
+
+[26/09/09] 🎓 Our paper **DataArc-SynData-Toolkit: A Unified Closed-Loop Framework for Multi-Path, Multimodal, and Multilingual Data Synthesis** was published in the *Proceedings of ACL 2026 (Volume 3: System Demonstrations)*. Read it on the [ACL Anthology](https://aclanthology.org/2026.acl-demo.31/) and see [Citation](#page_facing_up-citation).
 
 > [!TIP]
 >
@@ -253,6 +256,36 @@ If you have any doubt about regrading our Web UI, check our [Web UI document](/s
 ## :handshake: Contributing
 
 We welcome contributions!
+
+## :page_facing_up: Citation
+
+If you find **DataArc SynData Toolkit** useful in your research or products, please cite our ACL 2026 System Demonstrations paper:
+
+```bibtex
+@inproceedings{shi-etal-2026-dataarc,
+    title = "{D}ata{A}rc-{S}yn{D}ata-Toolkit: A Unified Closed-Loop Framework for Multi-Path, Multimodal, and Multilingual Data Synthesis",
+    author = "Shi, Zhichao  and
+      Yang, Cehao  and
+      Zhou, Hao  and
+      Wu, Xiaojun  and
+      Li, Huajie  and
+      Jiang, Xuhui  and
+      Xu, Chengjin  and
+      Wang, Yuanzhuo  and
+      Guo, Jian",
+    editor = "Durrett, Greg  and
+      Jian, Ping",
+    booktitle = "Proceedings of the 64th Annual Meeting of the {A}ssociation for {C}omputational {L}inguistics (Volume 3: System Demonstrations)",
+    month = jul,
+    year = "2026",
+    address = "San Diego, California, United States",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2026.acl-demo.31/",
+    doi = "10.18653/v1/2026.acl-demo.31",
+    pages = "318--326",
+    ISBN = "979-8-89176-392-0"
+}
+```
 
 ## Star History
 
