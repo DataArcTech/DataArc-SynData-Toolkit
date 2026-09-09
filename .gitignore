@@ -36,3 +36,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local data working directory (documents, parsed passages, train/val splits)
+dataset/
