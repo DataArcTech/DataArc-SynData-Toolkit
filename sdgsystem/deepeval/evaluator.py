@@ -148,10 +148,17 @@ class DeepEvalEvaluator:
 
         output_instruction = self.config.inference.output_instruction
 
+        skipped = 0
         for i, sample in enumerate(dataset.samples):
             input_text = sample["input"]
             expected_output = sample["output"]
             actual_output = post_trained_outputs[i]
+
+            # Skip samples with empty actual_output (model failed to generate)
+            if not actual_output or not actual_output.strip():
+                skipped += 1
+                logger.warning(f"Skipping sample {i}: empty model output")
+                continue
 
             # For format compliance, include output instruction in input
             input_with_instruction = input_text
@@ -167,11 +174,18 @@ class DeepEvalEvaluator:
 
             # Pairwise test case: actual_output = post-trained, expected_output = base
             if self.config.pairwise.enabled and base_outputs is not None:
+                base_output = base_outputs[i]
+                if not base_output or not base_output.strip():
+                    logger.warning(f"Skipping pairwise for sample {i}: empty base model output")
+                    continue
                 pairwise_test_cases.append(LLMTestCase(
                     input=input_with_instruction,
                     actual_output=actual_output,  # Post-trained model output
-                    expected_output=base_outputs[i]  # Base model output
+                    expected_output=base_output  # Base model output
                 ))
+
+        if skipped > 0:
+            logger.warning(f"Skipped {skipped}/{len(dataset)} samples due to empty model outputs")
 
         return standard_test_cases, pairwise_test_cases
 
