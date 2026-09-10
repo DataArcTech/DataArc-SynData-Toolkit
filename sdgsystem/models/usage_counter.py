@@ -107,7 +107,7 @@ class ModelUsageCounter:
             remain_token_anticipation = int(avg_token * self.remain)
             remain_time_anticipation = avg_time * self.remain
 
-            logger.info(f"[{self.name} Usage]: completed={self.completed}, token={self.token}, time={self.time:.2f} || remain={self.remain}, remain_token_anticipation={remain_token_anticipation}, remain_time_anticipatioin={remain_time_anticipation:.2f}")
+            logger.info(f"[{self.name} Usage]: completed={self.completed}, token={self.token}, time={self.time:.2f} || remain={self.remain}, remain_token_anticipation={remain_token_anticipation}, remain_time_anticipation={remain_time_anticipation:.2f}")
 
         # call callback outside of lock to avoid deadlock
         if self._on_update:
