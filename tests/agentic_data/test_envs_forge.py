@@ -8,6 +8,7 @@ from sdgsystem.agentic_data.envs_forge import (
     EnvsForgePlanItem,
     _solve_joint_with_pyscipopt,
     build_envs_forge_prompt,
+    build_skill_subgraph,
     estimate_pass_rate,
     extract_skill_profile,
     learning_frontier_score,
@@ -32,6 +33,18 @@ def make_seed(name: str, instruction: str, files: dict[str, str] | None = None) 
     if files:
         all_files.update(files)
     return TerminalBenchSeedTask(name=name, path=root, instruction=instruction, task_toml=all_files["task.toml"], files=all_files)
+
+
+def pyscipopt_available() -> bool:
+    return (
+        _solve_joint_with_pyscipopt(
+            [],
+            target_count=0,
+            min_skill_coverage={},
+            optimization_formulation="binary_integer_programming",
+        )
+        is not None
+    )
 
 
 class EnvsForgeTests(unittest.TestCase):
@@ -87,6 +100,7 @@ class EnvsForgeTests(unittest.TestCase):
         self.assertIn("bash-log-processor-fix", {item.seed.name for item in plan})
         self.assertIn("increase_complexity", {item.projection for item in plan})
         self.assertIn("reduce_complexity", {item.projection for item in plan})
+        self.assertTrue(all(item.optimization_formulation is None for item in plan))
 
     def test_plan_envs_forge_batch_uses_prefix_rewards_for_truncated_harbor_trial_names(self):
         seeds = [
@@ -240,6 +254,37 @@ class EnvsForgeTests(unittest.TestCase):
         self.assertEqual(item.solver_result["optimization_formulation"], "binary_integer_programming")
         self.assertEqual(item.solver_result["optimization_formulation_label"], "0-1 integer programming")
 
+    def test_joint_optimization_can_use_mixed_integer_programming_direction_variants(self):
+        seeds = [
+            make_seed("easy-csv-task", "Merge csv files."),
+            make_seed("frontier-json-task", "Normalize malformed jsonl rows with deterministic sorting."),
+        ]
+        rewards = {
+            "easy-csv-task": [1, 1],
+            "frontier-json-task": [1, 0],
+        }
+
+        plan = plan_envs_forge_batch(
+            seeds,
+            rewards_by_seed=rewards,
+            target_count=1,
+            projection_policy="joint_optimization",
+            optimization_formulation="mixed_integer_programming",
+        )
+
+        item = plan[0]
+        self.assertEqual(item.optimization_formulation, "mixed_integer_programming")
+        self.assertIn(item.evolution_direction, {"in_depth", "in_breadth"})
+        self.assertIn(":", item.action_variant)
+        self.assertEqual(item.solver_result["optimization_formulation"], "mixed_integer_programming")
+        self.assertEqual(item.solver_result["optimization_formulation_label"], "mixed integer programming")
+
+        profile = extract_skill_profile(seeds[0])
+        depth_graph = build_skill_subgraph(profile, "increase_complexity", "in_depth")
+        breadth_graph = build_skill_subgraph(profile, "increase_complexity", "in_breadth")
+        self.assertIn("edge_cases", depth_graph.allowed_added_nodes)
+        self.assertIn("alternate_fixture", breadth_graph.allowed_added_nodes)
+
     def test_joint_optimization_solves_skill_graph_nodes_for_allowed_additions(self):
         seeds = [
             make_seed("easy-csv-task", "Merge csv files."),
@@ -271,7 +316,7 @@ class EnvsForgeTests(unittest.TestCase):
                 any(row["skill_node"] == "edge_cases" for row in item.solver_result["selected_u"])
             )
 
-    @unittest.skipUnless(_solve_joint_with_pyscipopt([], target_count=0, min_skill_coverage={}) is not None, "PySCIPOpt is unavailable")
+    @unittest.skipUnless(pyscipopt_available(), "PySCIPOpt is unavailable")
     def test_pyscipopt_does_not_model_artifact_mask_constraints(self):
         seed = make_seed("semantic-core-task", "Rewrite a JSON task instruction and verifier.")
         profile = extract_skill_profile(seed)
@@ -319,10 +364,47 @@ class EnvsForgeTests(unittest.TestCase):
             [instruction_only_candidate, synchronized_candidate],
             target_count=1,
             min_skill_coverage={},
+            optimization_formulation="binary_integer_programming",
         )
 
         self.assertIsNotNone(solution)
         self.assertEqual(solution[0].artifact_edit_mask.required_artifacts, ("instruction",))
+
+    @unittest.skipUnless(pyscipopt_available(), "PySCIPOpt is unavailable")
+    def test_pyscipopt_milp_soft_coverage_slack_keeps_unreachable_coverage_feasible(self):
+        seed = make_seed("easy-csv-task", "Merge csv files.")
+        candidate = EnvsForgePlanItem(
+            seed=seed,
+            profile=extract_skill_profile(seed),
+            pass_rate=1.0,
+            frontier_score=0.7,
+            band="easy",
+            projection="diversify_frontier",
+            target_difficulty="medium",
+            sample_index=0,
+            evolution_direction="in_breadth",
+            projection_policy="joint_optimization",
+            predicted_frontier_score=0.7,
+            optimization_formulation="mixed_integer_programming",
+        )
+
+        hard_solution = _solve_joint_with_pyscipopt(
+            [candidate],
+            target_count=1,
+            min_skill_coverage={"system_admin": 1},
+            optimization_formulation="binary_integer_programming",
+        )
+        soft_solution = _solve_joint_with_pyscipopt(
+            [candidate],
+            target_count=1,
+            min_skill_coverage={"system_admin": 1},
+            optimization_formulation="mixed_integer_programming",
+        )
+
+        self.assertIsNone(hard_solution)
+        self.assertIsNotNone(soft_solution)
+        self.assertEqual(soft_solution[0].solver_result["coverage_slack"]["system_admin"], 1.0)
+        self.assertEqual(soft_solution[0].solver_result["selected_x"]["action_variant"], "diversify_frontier:in_breadth")
 
     def test_build_envs_forge_prompt_contains_projection_contract_and_full_artifact_requirements(self):
         seed = make_seed("systemd-log-monitoring", "Configure systemd service, timer, journald logs, and logrotate.")
@@ -335,6 +417,7 @@ class EnvsForgeTests(unittest.TestCase):
             projection="reduce_complexity",
             target_difficulty="easy",
             sample_index=0,
+            evolution_direction="in_breadth",
         )
 
         prompt = build_envs_forge_prompt(item, model="deepseek-v4-flash")
@@ -350,6 +433,8 @@ class EnvsForgeTests(unittest.TestCase):
         self.assertIn("Do not modify apt sources", prompt)
         self.assertIn("Artifact edit mask", prompt)
         self.assertIn("Skill subgraph", prompt)
+        self.assertIn("Evolution direction", prompt)
+        self.assertIn("in_breadth", prompt)
         self.assertIn("required_artifacts", prompt)
         self.assertIn("allowed_added_nodes", prompt)
 

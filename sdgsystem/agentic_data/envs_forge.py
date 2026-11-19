@@ -10,10 +10,19 @@ from typing import Sequence
 from .terminal_bench import TerminalBenchSeedTask, _include_seed_file, _shorten
 
 PROJECTIONS: tuple[str, ...] = ("increase_complexity", "reduce_complexity", "diversify_frontier")
+EVOLUTION_DIRECTIONS: tuple[str, ...] = ("in_depth", "in_breadth")
+# The action-selection selector in this module is the alpha line: it chooses one
+# of six preset actions whose difficulty effect is an exogenous constant. The
+# component-edit MILP that replaced it lives in envs_forge_v1.py.
+METHOD_VERSION = "envs-forge-alpha"
 DEFAULT_ACTION_SHIFTS: dict[str, float] = {
     "increase_complexity": -0.25,
     "reduce_complexity": 0.25,
     "diversify_frontier": 0.0,
+}
+DEFAULT_DIRECTION_SCALES: dict[str, float] = {
+    "in_depth": 1.0,
+    "in_breadth": 0.65,
 }
 CALIBRATED_TIE_BREAK: dict[str, int] = {
     "diversify_frontier": 0,
@@ -22,8 +31,11 @@ CALIBRATED_TIE_BREAK: dict[str, int] = {
 }
 EXACT_ENUMERATION_LIMIT = 24
 SKILL_NODE_PENALTY = 1e-6
+SKILL_COVERAGE_SLACK_PENALTY = 0.25
 ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION = "binary_integer_programming"
+ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION = "mixed_integer_programming"
 ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION_LABEL = "0-1 integer programming"
+ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION_LABEL = "mixed integer programming"
 
 
 @dataclass(frozen=True)
@@ -97,6 +109,7 @@ class EnvsForgePlanItem:
     projection: str
     target_difficulty: str
     sample_index: int
+    evolution_direction: str | None = None
     projection_policy: str = "band_rule"
     predicted_pass_rate: float | None = None
     predicted_frontier_score: float | None = None
@@ -105,6 +118,12 @@ class EnvsForgePlanItem:
     solver_backend: str | None = None
     solver_result: dict[str, object] | None = None
     optimization_formulation: str | None = None
+
+    @property
+    def action_variant(self) -> str:
+        if self.evolution_direction:
+            return f"{self.projection}:{self.evolution_direction}"
+        return self.projection
 
 
 KEYWORDS: dict[str, dict[str, tuple[str, ...]]] = {
@@ -180,6 +199,43 @@ def select_calibrated_projection(
     return projection, predicted_pass_rate, learning_frontier_score(predicted_pass_rate, target=target, sigma=sigma)
 
 
+def _default_evolution_direction_for_band(band: str, projection: str) -> str:
+    if band == "hard":
+        return "in_breadth"
+    if band == "frontier":
+        return "in_breadth" if projection == "diversify_frontier" else "in_depth"
+    return "in_depth"
+
+
+def _action_shift_for_variant(
+    projection: str,
+    evolution_direction: str | None,
+    *,
+    action_shifts: dict[str, float] | None = None,
+) -> float:
+    base_shift = (action_shifts or DEFAULT_ACTION_SHIFTS).get(projection, 0.0)
+    if evolution_direction is None:
+        return base_shift
+    return base_shift * DEFAULT_DIRECTION_SCALES.get(evolution_direction, 1.0)
+
+
+def _evolution_direction_instruction(evolution_direction: str | None) -> str:
+    if evolution_direction == "in_depth":
+        return (
+            "Prefer a deeper edit: strengthen constraints, extend edge cases, and make the task structurally richer "
+            "without changing the core skill graph."
+        )
+    if evolution_direction == "in_breadth":
+        return (
+            "Prefer a broader edit: vary fixtures, nearby constraints, or surrounding context while keeping the "
+            "core difficulty in the same neighborhood."
+        )
+    return (
+        "Choose the evolution direction that best matches the projection. If you need a default, stay consistent "
+        "with the skill subgraph and the learning-frontier objective."
+    )
+
+
 def artifact_edit_mask_for_projection(projection: str) -> ArtifactEditMask:
     if projection == "increase_complexity":
         return ArtifactEditMask(
@@ -223,21 +279,30 @@ def artifact_edit_mask_for_projection(projection: str) -> ArtifactEditMask:
     )
 
 
-def build_skill_subgraph(profile: SkillProfile, projection: str) -> SkillSubgraph:
+def build_skill_subgraph(profile: SkillProfile, projection: str, evolution_direction: str | None = None) -> SkillSubgraph:
     nodes = _unique(profile.as_tags() or ("general_terminal",))
     edges = _skill_edges(profile)
     if projection == "reduce_complexity":
         preserve_nodes = _unique((*profile.domains, *profile.artifacts, *profile.operations))
-        allowed_added_nodes = ("file_level_simulation", "deterministic_fixture")
+        if evolution_direction == "in_breadth":
+            allowed_added_nodes = ("alternate_fixture", "neighboring_constraint")
+        else:
+            allowed_added_nodes = ("file_level_simulation", "deterministic_fixture")
         removable = {"systemd", "docker", "scheduling", "concurrency", "atomicity"}
         allowed_removed_nodes = tuple(node for node in nodes if node in removable)
     elif projection == "increase_complexity":
         preserve_nodes = nodes
-        allowed_added_nodes = ("edge_cases", "structured_output", "deterministic_sorting")
+        if evolution_direction == "in_breadth":
+            allowed_added_nodes = ("alternate_fixture", "neighboring_constraint")
+        else:
+            allowed_added_nodes = ("edge_cases", "structured_output", "deterministic_sorting")
         allowed_removed_nodes = ()
     elif projection == "diversify_frontier":
         preserve_nodes = nodes
-        allowed_added_nodes = ("alternate_fixture", "neighboring_constraint")
+        if evolution_direction == "in_depth":
+            allowed_added_nodes = ("edge_cases", "structured_output", "deterministic_sorting")
+        else:
+            allowed_added_nodes = ("alternate_fixture", "neighboring_constraint")
         allowed_removed_nodes = ()
     else:
         raise ValueError(f"Unknown Envs-FORGE projection: {projection}")
@@ -273,9 +338,17 @@ def plan_envs_forge_batch(
     projection_policy: str = "band_rule",
     action_shifts: dict[str, float] | None = None,
     min_skill_coverage: dict[str, int] | None = None,
+    optimization_formulation: str = ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION,
 ) -> list[EnvsForgePlanItem]:
     if projection_policy not in {"band_rule", "calibrated_transfer", "joint_optimization"}:
         raise ValueError("projection_policy must be 'band_rule', 'calibrated_transfer', or 'joint_optimization'")
+    if optimization_formulation not in {
+        ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION,
+        ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION,
+    }:
+        raise ValueError(
+            "optimization_formulation must be 'binary_integer_programming' or 'mixed_integer_programming'"
+        )
     rewards_by_seed = rewards_by_seed or {}
     candidates: list[EnvsForgePlanItem] = []
     for seed in seeds:
@@ -297,6 +370,36 @@ def plan_envs_forge_batch(
                 frontier_score = predicted_frontier_score
             target_difficulty = target_difficulty_for_projection(projection)
         elif projection_policy == "joint_optimization":
+            if optimization_formulation == ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION:
+                for projection in PROJECTIONS:
+                    for evolution_direction in EVOLUTION_DIRECTIONS:
+                        predicted_pass_rate = _clip_probability(
+                            pass_rate
+                            + _action_shift_for_variant(
+                                projection,
+                                evolution_direction,
+                                action_shifts=action_shifts,
+                            )
+                        )
+                        predicted_frontier_score = learning_frontier_score(predicted_pass_rate, target=target, sigma=sigma)
+                        candidates.append(
+                            _make_plan_item(
+                                seed=seed,
+                                profile=profile,
+                                pass_rate=pass_rate,
+                                frontier_score=predicted_frontier_score,
+                                band=band,
+                                projection=projection,
+                                evolution_direction=evolution_direction,
+                                target_difficulty=target_difficulty_for_projection(projection),
+                                sample_index=0,
+                                projection_policy=projection_policy,
+                                predicted_pass_rate=predicted_pass_rate,
+                                predicted_frontier_score=predicted_frontier_score,
+                                optimization_formulation=optimization_formulation,
+                            )
+                        )
+                continue
             for projection in PROJECTIONS:
                 predicted_pass_rate = _clip_probability(pass_rate + (action_shifts or DEFAULT_ACTION_SHIFTS).get(projection, 0.0))
                 predicted_frontier_score = learning_frontier_score(predicted_pass_rate, target=target, sigma=sigma)
@@ -308,11 +411,13 @@ def plan_envs_forge_batch(
                         frontier_score=predicted_frontier_score,
                         band=band,
                         projection=projection,
+                        evolution_direction=_default_evolution_direction_for_band(band, projection),
                         target_difficulty=target_difficulty_for_projection(projection),
                         sample_index=0,
                         projection_policy=projection_policy,
                         predicted_pass_rate=predicted_pass_rate,
                         predicted_frontier_score=predicted_frontier_score,
+                        optimization_formulation=optimization_formulation,
                     )
                 )
             continue
@@ -327,6 +432,7 @@ def plan_envs_forge_batch(
                 frontier_score=frontier_score,
                 band=band,
                 projection=projection,
+                evolution_direction=_default_evolution_direction_for_band(band, projection),
                 target_difficulty=target_difficulty,
                 sample_index=0,
                 projection_policy=projection_policy,
@@ -340,6 +446,7 @@ def plan_envs_forge_batch(
             candidates,
             target_count=target_count,
             min_skill_coverage=min_skill_coverage or {},
+            optimization_formulation=optimization_formulation,
         )
     else:
         ordered = _balanced_order(candidates)
@@ -353,6 +460,7 @@ def plan_envs_forge_batch(
                 frontier_score=item.frontier_score,
                 band=item.band,
                 projection=item.projection,
+                evolution_direction=item.evolution_direction,
                 target_difficulty=item.target_difficulty,
                 sample_index=index,
                 projection_policy=item.projection_policy,
@@ -379,6 +487,7 @@ def _make_plan_item(
     target_difficulty: str,
     sample_index: int,
     projection_policy: str,
+    evolution_direction: str | None = None,
     predicted_pass_rate: float | None = None,
     predicted_frontier_score: float | None = None,
     artifact_edit_mask: ArtifactEditMask | None = None,
@@ -394,13 +503,14 @@ def _make_plan_item(
         frontier_score=frontier_score,
         band=band,
         projection=projection,
+        evolution_direction=evolution_direction,
         target_difficulty=target_difficulty,
         sample_index=sample_index,
         projection_policy=projection_policy,
         predicted_pass_rate=predicted_pass_rate,
         predicted_frontier_score=predicted_frontier_score,
         artifact_edit_mask=artifact_edit_mask or artifact_edit_mask_for_projection(projection),
-        skill_subgraph=skill_subgraph or build_skill_subgraph(profile, projection),
+        skill_subgraph=skill_subgraph or build_skill_subgraph(profile, projection, evolution_direction),
         solver_backend=solver_backend,
         solver_result=solver_result,
         optimization_formulation=optimization_formulation or _optimization_formulation_for_policy(projection_policy),
@@ -412,6 +522,7 @@ def _solve_joint_projection_plan(
     *,
     target_count: int,
     min_skill_coverage: dict[str, int],
+    optimization_formulation: str,
 ) -> list[EnvsForgePlanItem]:
     count = min(max(0, target_count), len({item.seed.name for item in candidates}))
     if count == 0:
@@ -421,6 +532,7 @@ def _solve_joint_projection_plan(
         candidates,
         target_count=count,
         min_skill_coverage=min_skill_coverage,
+        optimization_formulation=optimization_formulation,
     )
     if pyscipopt_solution is not None:
         return _with_solver_backend(pyscipopt_solution, "pyscipopt")
@@ -430,6 +542,7 @@ def _solve_joint_projection_plan(
             candidates,
             target_count=count,
             min_skill_coverage=min_skill_coverage,
+            optimization_formulation=optimization_formulation,
         )
         if exact_solution is not None:
             return _with_solver_backend(exact_solution, "exact_enumeration")
@@ -439,6 +552,7 @@ def _solve_joint_projection_plan(
             candidates,
             target_count=count,
             min_skill_coverage=min_skill_coverage,
+            optimization_formulation=optimization_formulation,
         ),
         "greedy",
     )
@@ -449,6 +563,7 @@ def _solve_joint_with_pyscipopt(
     *,
     target_count: int,
     min_skill_coverage: dict[str, int],
+    optimization_formulation: str,
 ) -> list[EnvsForgePlanItem] | None:
     try:
         from pyscipopt import Model, quicksum  # type: ignore
@@ -464,6 +579,14 @@ def _solve_joint_with_pyscipopt(
         for index, _item in enumerate(candidates)
         for node in skill_nodes
     }
+    slack_variables = (
+        {
+            skill: model.addVar(vtype="C", lb=0.0, name=f"slack_{skill}")
+            for skill in min_skill_coverage
+        }
+        if optimization_formulation == ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION
+        else {}
+    )
     model.addCons(quicksum(variables) == target_count)
     for seed_name in sorted({item.seed.name for item in candidates}):
         model.addCons(quicksum(variables[index] for index, item in enumerate(candidates) if item.seed.name == seed_name) <= 1)
@@ -479,16 +602,22 @@ def _solve_joint_with_pyscipopt(
             else:
                 model.addCons(skill_variable == 0)
     for skill, minimum in min_skill_coverage.items():
-        model.addCons(quicksum(skill_variables[index, skill] for index, _item in enumerate(candidates)) >= minimum)
+        covered = quicksum(skill_variables[index, skill] for index, _item in enumerate(candidates))
+        if optimization_formulation == ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION:
+            model.addCons(covered + slack_variables[skill] >= minimum)
+        else:
+            model.addCons(covered >= minimum)
     optional_skill_penalty = quicksum(
         skill_variables[index, node]
         for index, item in enumerate(candidates)
         for node in _optional_skill_nodes(item)
         if node in skill_nodes
     )
+    slack_penalty = quicksum(slack_variables.values()) if slack_variables else 0
     model.setObjective(
         quicksum(_candidate_objective(item) * variables[index] for index, item in enumerate(candidates))
-        - SKILL_NODE_PENALTY * optional_skill_penalty,
+        - SKILL_NODE_PENALTY * optional_skill_penalty
+        - SKILL_COVERAGE_SLACK_PENALTY * slack_penalty,
         "maximize",
     )
     model.optimize()
@@ -497,14 +626,18 @@ def _solve_joint_with_pyscipopt(
     objective_value = float(model.getObjVal())
     solver_result_base = {
         "backend": "pyscipopt",
-        "optimization_formulation": ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION,
-        "optimization_formulation_label": ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION_LABEL,
+        "optimization_formulation": optimization_formulation,
+        "optimization_formulation_label": _optimization_formulation_label(optimization_formulation),
         "status": str(model.getStatus()),
         "objective_value": objective_value,
         "target_count": target_count,
         "candidate_count": len(candidates),
         "skill_nodes": skill_nodes,
         "min_skill_coverage": dict(sorted(min_skill_coverage.items())),
+        "coverage_slack": {
+            skill: float(model.getVal(variable))
+            for skill, variable in slack_variables.items()
+        },
     }
     selected: list[EnvsForgePlanItem] = []
     for index, item in enumerate(candidates):
@@ -521,6 +654,8 @@ def _solve_joint_with_pyscipopt(
                 "candidate_index": index,
                 "seed_task": item.seed.name,
                 "projection": item.projection,
+                "evolution_direction": item.evolution_direction,
+                "action_variant": item.action_variant,
                 "objective": _candidate_objective(item),
                 "x": 1.0,
             },
@@ -538,6 +673,7 @@ def _solve_joint_with_exact_enumeration(
     *,
     target_count: int,
     min_skill_coverage: dict[str, int],
+    optimization_formulation: str,
 ) -> list[EnvsForgePlanItem] | None:
     best: tuple[float, tuple[str, ...], tuple[EnvsForgePlanItem, ...]] | None = None
     for combo in combinations(candidates, target_count):
@@ -545,8 +681,12 @@ def _solve_joint_with_exact_enumeration(
             continue
         selected_with_skills = _apply_skill_graph_selection(combo, min_skill_coverage)
         if selected_with_skills is None:
-            continue
+            selected_with_skills = list(combo)
         objective = sum(_candidate_objective(item) for item in selected_with_skills)
+        if optimization_formulation == ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION:
+            objective -= SKILL_COVERAGE_SLACK_PENALTY * sum(
+                _skill_coverage_shortage(selected_with_skills, min_skill_coverage).values()
+            )
         tie_break = tuple(f"{item.seed.name}:{item.projection}" for item in sorted(selected_with_skills, key=lambda value: value.seed.name))
         score = (objective, tie_break, tuple(selected_with_skills))
         if best is None or score[:2] > best[:2]:
@@ -559,6 +699,7 @@ def _solve_joint_with_greedy(
     *,
     target_count: int,
     min_skill_coverage: dict[str, int],
+    optimization_formulation: str,
 ) -> list[EnvsForgePlanItem]:
     selected: list[EnvsForgePlanItem] = []
     ordered = sorted(candidates, key=_candidate_objective, reverse=True)
@@ -579,10 +720,30 @@ def _solve_joint_with_greedy(
     return selected_with_skills or selected[:target_count]
 
 
+def _skill_coverage_shortage(
+    items: Sequence[EnvsForgePlanItem],
+    min_skill_coverage: dict[str, int],
+) -> dict[str, int]:
+    shortage: dict[str, int] = {}
+    selected_nodes_by_index = {index: _required_skill_nodes(item) for index, item in enumerate(items)}
+    for skill, minimum in min_skill_coverage.items():
+        current = sum(1 for nodes in selected_nodes_by_index.values() if skill in nodes)
+        shortage[skill] = max(0, minimum - current)
+    return shortage
+
+
 def _candidate_objective(item: EnvsForgePlanItem) -> float:
     if item.predicted_frontier_score is not None:
         return float(item.predicted_frontier_score)
     return float(item.frontier_score)
+
+
+def _optimization_formulation_label(formulation: str | None) -> str | None:
+    if formulation == ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION:
+        return ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION_LABEL
+    if formulation == ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION:
+        return ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION_LABEL
+    return None
 
 
 def _candidate_can_cover_skill(item: EnvsForgePlanItem, skill: str) -> bool:
@@ -590,12 +751,12 @@ def _candidate_can_cover_skill(item: EnvsForgePlanItem, skill: str) -> bool:
 
 
 def _required_skill_nodes(item: EnvsForgePlanItem) -> set[str]:
-    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection, item.evolution_direction)
     return (set(subgraph.nodes) - set(subgraph.allowed_removed_nodes)) | set(subgraph.preserve_nodes)
 
 
 def _optional_skill_nodes(item: EnvsForgePlanItem) -> set[str]:
-    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection, item.evolution_direction)
     return set(subgraph.allowed_added_nodes) | set(subgraph.allowed_removed_nodes)
 
 
@@ -649,7 +810,7 @@ def _with_selected_skill_nodes(
     selected_nodes: set[str],
     solver_result: dict[str, object] | None = None,
 ) -> EnvsForgePlanItem:
-    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+    subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection, item.evolution_direction)
     ordered_nodes = _ordered_selected_nodes(subgraph, selected_nodes)
     selected_node_set = set(ordered_nodes)
     selected_subgraph = SkillSubgraph(
@@ -666,6 +827,7 @@ def _with_selected_skill_nodes(
         frontier_score=item.frontier_score,
         band=item.band,
         projection=item.projection,
+        evolution_direction=item.evolution_direction,
         target_difficulty=item.target_difficulty,
         sample_index=item.sample_index,
         projection_policy=item.projection_policy,
@@ -709,26 +871,32 @@ def _with_solver_backend(items: Sequence[EnvsForgePlanItem], backend: str) -> li
         formulation = item.optimization_formulation or _optimization_formulation_for_policy(item.projection_policy)
         if formulation:
             solver_result.setdefault("optimization_formulation", formulation)
-            solver_result.setdefault("optimization_formulation_label", ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION_LABEL)
+            solver_result.setdefault(
+                "optimization_formulation_label",
+                ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION_LABEL
+                if formulation == ENVS_FORGE_MILP_OPTIMIZATION_FORMULATION
+                else ENVS_FORGE_ALPHA_OPTIMIZATION_FORMULATION_LABEL,
+            )
         result.append(
             _make_plan_item(
-            seed=item.seed,
-            profile=item.profile,
-            pass_rate=item.pass_rate,
-            frontier_score=item.frontier_score,
-            band=item.band,
-            projection=item.projection,
-            target_difficulty=item.target_difficulty,
-            sample_index=item.sample_index,
-            projection_policy=item.projection_policy,
-            predicted_pass_rate=item.predicted_pass_rate,
-            predicted_frontier_score=item.predicted_frontier_score,
-            artifact_edit_mask=item.artifact_edit_mask,
-            skill_subgraph=item.skill_subgraph,
-            solver_backend=backend,
-            solver_result=solver_result,
-            optimization_formulation=formulation,
-        )
+                seed=item.seed,
+                profile=item.profile,
+                pass_rate=item.pass_rate,
+                frontier_score=item.frontier_score,
+                band=item.band,
+                projection=item.projection,
+                evolution_direction=item.evolution_direction,
+                target_difficulty=item.target_difficulty,
+                sample_index=item.sample_index,
+                projection_policy=item.projection_policy,
+                predicted_pass_rate=item.predicted_pass_rate,
+                predicted_frontier_score=item.predicted_frontier_score,
+                artifact_edit_mask=item.artifact_edit_mask,
+                skill_subgraph=item.skill_subgraph,
+                solver_backend=backend,
+                solver_result=solver_result,
+                optimization_formulation=formulation,
+            )
         )
     return result
 
@@ -799,14 +967,17 @@ def build_envs_forge_prompt(item: EnvsForgePlanItem, *, model: str) -> str:
     seed_files = {path: _shorten(text, 3500) for path, text in item.seed.files.items() if _include_seed_file(path)}
     projection_instruction = _projection_instruction(item.projection)
     artifact_edit_mask = item.artifact_edit_mask or artifact_edit_mask_for_projection(item.projection)
-    skill_subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+    skill_subgraph = item.skill_subgraph or build_skill_subgraph(item.profile, item.projection, item.evolution_direction)
     payload = {
         "seed": item.seed.name,
         "band": item.band,
         "pass_rate": round(item.pass_rate, 4),
         "learning_frontier_score": round(item.frontier_score, 4),
         "projection": item.projection,
+        "evolution_direction": item.evolution_direction,
+        "action_variant": item.action_variant,
         "projection_policy": item.projection_policy,
+        "optimization_formulation": item.optimization_formulation,
         "target_difficulty": item.target_difficulty,
         "skill_profile": {
             "domains": item.profile.domains,
@@ -824,6 +995,7 @@ def build_envs_forge_prompt(item: EnvsForgePlanItem, *, model: str) -> str:
         payload["predicted_pass_rate_after_projection"] = round(item.predicted_pass_rate, 4)
     if item.predicted_frontier_score is not None:
         payload["predicted_frontier_score_after_projection"] = round(item.predicted_frontier_score, 4)
+    evolution_direction_instruction = _evolution_direction_instruction(item.evolution_direction)
     return f"""Synthesize one terminal-bench-style task directory using Envs-FORGE.
 
 Return exactly one JSON object, no markdown.
@@ -841,6 +1013,9 @@ Projection decision:
 
 Projection instruction:
 {projection_instruction}
+
+Evolution direction:
+{evolution_direction_instruction}
 
 Artifact edit mask:
 {json.dumps(artifact_edit_mask.as_json(), ensure_ascii=False, indent=2)}

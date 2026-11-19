@@ -27,6 +27,7 @@ from sdgsystem.agentic_data.envs_forge import (  # noqa: E402
     load_rewards_from_harbor_result,
     plan_envs_forge_batch,
 )
+from sdgsystem.agentic_data.envs_forge import METHOD_VERSION as ENVS_FORGE_ALPHA_METHOD_VERSION  # noqa: E402
 from sdgsystem.agentic_data.terminal_bench import (  # noqa: E402
     TerminalBenchSeedTask,
     build_terminal_bench_repair_prompt,
@@ -95,6 +96,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task-names", nargs="+", default=None)
     parser.add_argument("--synthesis-model", default="deepseek-v4-flash")
     parser.add_argument("--projection-policy", choices=["band_rule", "calibrated_transfer", "joint_optimization"], default="band_rule")
+    parser.add_argument(
+        "--optimization-formulation",
+        choices=["binary_integer_programming", "mixed_integer_programming"],
+        default="binary_integer_programming",
+    )
     parser.add_argument("--min-skill-coverage", action="append", default=[])
     parser.add_argument("--downstream-model", default="openai/qwen3-8b")
     parser.add_argument("--completion-max-tokens", type=int, default=20000)
@@ -133,6 +139,7 @@ def main() -> None:
         target_count=args.target_count,
         projection_policy=args.projection_policy,
         min_skill_coverage=min_skill_coverage,
+        optimization_formulation=args.optimization_formulation,
     )
     write_json(method_dir / "envs_forge_plan.json", [plan_item_to_json(item) for item in plan])
     write_json(method_dir / "envs_forge_solver_result.json", batch_solver_result_to_json(plan))
@@ -192,6 +199,7 @@ def main() -> None:
     summary = write_terminal_bench_outputs(method_dir, records, accepted, started_at)
     eval_root = build_accepted_eval_root(method_dir, accepted[: args.target_count])
     summary["envs_forge"] = {
+        "method_version": ENVS_FORGE_ALPHA_METHOD_VERSION,
         "target_count": args.target_count,
         "eval_root": str(eval_root),
         "projection_policy": args.projection_policy,
@@ -340,7 +348,7 @@ def repair_once(
         artifact=previous_artifact,
         failure_summary=summarize_terminal_bench_failure(previous_record),
         strategy="envs_forge",
-        evol_direction=item.projection,
+        evol_direction=item.evolution_direction,
         repair_index=repair_index,
         model=model,
     )
@@ -383,7 +391,10 @@ def materialize_and_validate_record(
         if isinstance(metadata, dict):
             metadata.setdefault("source_seed", item.seed.name)
             metadata.setdefault("synthetic_strategy", "envs_forge")
+            metadata.setdefault("method_version", ENVS_FORGE_ALPHA_METHOD_VERSION)
             metadata.setdefault("envs_forge_projection", item.projection)
+            metadata.setdefault("envs_forge_evolution_direction", item.evolution_direction)
+            metadata.setdefault("envs_forge_action_variant", item.action_variant)
             metadata.setdefault("envs_forge_projection_policy", item.projection_policy)
             metadata.setdefault("envs_forge_band", item.band)
             metadata.setdefault("envs_forge_pass_rate", item.pass_rate)
@@ -429,7 +440,9 @@ def materialize_and_validate_record(
         "task_name": str((artifact or {}).get("task_name") or ""),
         "task_path": str(task_dir) if task_dir else None,
         "strategy": "envs_forge",
-        "evol_direction": item.projection,
+        "method_version": ENVS_FORGE_ALPHA_METHOD_VERSION,
+        "evol_direction": item.evolution_direction,
+        "action_variant": item.action_variant,
         "sample_index": item.sample_index,
         "instruction": str((artifact or {}).get("instruction_md") or ""),
         "raw_response": raw,
@@ -572,6 +585,8 @@ def plan_item_to_json(item: EnvsForgePlanItem) -> dict[str, Any]:
         "frontier_score": item.frontier_score,
         "band": item.band,
         "projection": item.projection,
+        "evolution_direction": item.evolution_direction,
+        "action_variant": item.action_variant,
         "projection_policy": item.projection_policy,
         "target_difficulty": item.target_difficulty,
         "sample_index": item.sample_index,
@@ -598,7 +613,7 @@ def resolved_artifact_edit_mask(item: EnvsForgePlanItem) -> ArtifactEditMask:
 
 
 def resolved_skill_subgraph(item: EnvsForgePlanItem) -> SkillSubgraph:
-    return item.skill_subgraph or build_skill_subgraph(item.profile, item.projection)
+    return item.skill_subgraph or build_skill_subgraph(item.profile, item.projection, item.evolution_direction)
 
 
 def batch_solver_result_to_json(plan: list[EnvsForgePlanItem]) -> dict[str, Any]:
@@ -641,6 +656,7 @@ def batch_solver_result_to_json(plan: list[EnvsForgePlanItem]) -> dict[str, Any]
         "candidate_count": first.get("candidate_count"),
         "skill_nodes": first.get("skill_nodes"),
         "min_skill_coverage": first.get("min_skill_coverage"),
+        "coverage_slack": first.get("coverage_slack"),
         "selected_x": selected_x,
         "selected_u": selected_u,
     }
@@ -652,7 +668,9 @@ def failure_record(item: EnvsForgePlanItem, error: str) -> dict[str, Any]:
         "task_name": "",
         "task_path": None,
         "strategy": "envs_forge",
-        "evol_direction": item.projection,
+        "method_version": ENVS_FORGE_ALPHA_METHOD_VERSION,
+        "evol_direction": item.evolution_direction,
+        "action_variant": item.action_variant,
         "sample_index": item.sample_index,
         "instruction": "",
         "raw_response": "",
